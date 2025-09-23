@@ -13,3 +13,8 @@ CREATE POLICY "Users can view their own notifications."
 ON notifications FOR SELECT
 TO authenticated
 USING (auth.uid() = user_id);
+
+CREATE POLICY "Authenticated users can create notifications."
+ON notifications FOR INSERT
+TO authenticated
+WITH CHECK (true);
