@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { Droplet, MapPin, ArrowLeft, ArrowRight } from "lucide-react"
+import { Droplet, LocateFixed, ArrowLeft, ArrowRight } from "lucide-react"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { User } from "@supabase/supabase-js"
 
@@ -18,7 +18,9 @@ export default function BloodProfilePage() {
 
   const [bloodType, setBloodType] = useState<BloodType | "">("")
   const [rh, setRh] = useState<Rh | "">("")
-  const [city, setCity] = useState<string>("") // Note: city is not in db schema, we'll need to add it or use lat/lng
+  const [latitude, setLatitude] = useState<number | null>(null)
+  const [longitude, setLongitude] = useState<number | null>(null)
+  const [locationStatus, setLocationStatus] = useState("idle")
   const [radiusKm, setRadiusKm] = useState<5 | 10 | 25 | 50>(10)
 
   useEffect(() => {
@@ -38,28 +40,50 @@ export default function BloodProfilePage() {
         setBloodType(profile.blood_type || "")
         setRh(profile.rh || "")
         setRadiusKm(profile.radius_km || 10)
-        // setCity(profile.city || ''); // Add city to profile table if needed
+        setLatitude(profile.location_lat || null)
+        setLongitude(profile.location_lng || null)
       }
       setLoaded(true)
     }
     getUser()
   }, [router, supabase])
 
-  const canContinue = bloodType && rh
+  const canContinue = bloodType && rh && latitude && longitude
+
+  const handleSetLocation = () => {
+    setLocationStatus("loading")
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude)
+        setLongitude(position.coords.longitude)
+        setLocationStatus("success")
+      },
+      (error) => {
+        console.error("Geolocation error:", error)
+        setLocationStatus("error")
+        alert("Could not get your location. Please check your browser permissions.")
+      },
+    )
+  }
 
   const saveAndNext = async () => {
-    if (!user) return
+    if (!user || !canContinue) return
 
-    const { error } = await supabase.from("profiles").upsert({
-      id: user.id,
-      blood_type: bloodType,
-      rh: rh,
-      radius_km: radiusKm,
-      updated_at: new Date().toISOString(),
+    const { error } = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        blood_type: bloodType,
+        rh: rh,
+        radius_km: radiusKm,
+        location_lat: latitude,
+        location_lng: longitude,
+      }),
     })
 
     if (error) {
       console.error("Error updating profile", error)
+      alert("There was an error saving your profile.")
       return
     }
 
@@ -145,7 +169,33 @@ export default function BloodProfilePage() {
           </div>
         </div>
 
-        {/* Location + radius */}
+        {/* Location */}
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-gray-700 mb-3 font-mono text-center">Your Location</h2>
+          <div className="p-4 bg-[#e6eaf1] rounded-2xl text-center">
+            {latitude && longitude ? (
+              <div>
+                <p className="font-mono text-sm text-green-700">Location set!</p>
+                <p className="font-mono text-xs text-gray-500">
+                  Lat: {latitude.toFixed(4)}, Lng: {longitude.toFixed(4)}
+                </p>
+              </div>
+            ) : (
+              <p className="font-mono text-sm text-gray-500">Your location is not set.</p>
+            )}
+            <motion.button
+              onClick={handleSetLocation}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="mt-3 px-4 py-2 bg-[#f0f3fa] rounded-xl font-semibold shadow-[6px_6px_12px_#d1d9e6,-6px_-6px_12px_#ffffff] hover:shadow-[4px_4px_8px_#d1d9e6,-4px_-4px_8px_#ffffff] active:shadow-[inset_4px_4px_8px_#d1d9e6,inset_-4px_-4px_8px_#ffffff] transition-all duration-200 flex items-center gap-2 font-mono text-gray-700 mx-auto"
+            >
+              <LocateFixed className="w-4 h-4" />
+              {locationStatus === "loading" ? "Getting..." : "Use My Current Location"}
+            </motion.button>
+          </div>
+        </div>
+
+        {/* radius */}
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-700 mb-3 font-mono text-center">Notification Radius</h2>
           <div className="grid grid-cols-4 gap-3">

@@ -15,7 +15,7 @@ interface EmergencyRequest {
   radius_km: number;
 }
 
-// This should match the structure of the 'profiles' table
+// This should match the structure of the 'donor_profiles_for_matching' view
 interface DonorProfile {
   id: string;
   name: string | null;
@@ -25,7 +25,6 @@ interface DonorProfile {
   location_lat: number | null;
   location_lng: number | null;
   availability_status: string | null;
-  medical_notes: string | null;
 }
 
 /**
@@ -40,11 +39,11 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
   // 1. Fetch all available donor profiles from the secure view
   const { data: profiles, error } = await supabase
     .from('donor_profiles_for_matching')
-    .select('id, name, blood_type, rh, last_donation_date, location_lat, location_lng, availability_status')
+    .select('*')
     .eq('availability_status', 'available');
 
   if (error) {
-    console.error('Error fetching profiles:', error);
+    console.error('Error fetching profiles from view:', error);
     return [];
   }
 
@@ -62,7 +61,7 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
   const eligibleDonors = bloodTypeMatches.filter(p => {
-    if (!p.last_donation_date) return true; // No donation history, so they are eligible
+    if (!p.last_donation_date) return true;
     return new Date(p.last_donation_date) < ninetyDaysAgo;
   });
   console.log(`Found ${eligibleDonors.length} donors eligible to donate.`);
@@ -100,16 +99,14 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
 
   console.log(`Found ${nearbyDonors.length} donors within the ${request.radius_km}km radius.`);
 
-  // 5. Score remaining donors using Gemini API (Proof of Concept)
+  // 5. Score remaining donors using Gemini API
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const scoringPromises = nearbyDonors.map(async item => {
     const { donor } = item;
     const prompt = `
       You are a medical data analyst. Your task is to provide a conceptual medical compatibility score between a blood requester and a potential donor.
-      Do not provide any medical advice. This is for a conceptual model only.
-      The score should be a single number between 0 and 100, where 100 is a perfect match.
-      Provide a brief, one-sentence justification for the score.
+      The score should be a single number between 0 and 100. Provide a brief justification.
 
       Requester Info:
       - Blood Type: ${request.blood_type}${request.rh}
@@ -117,7 +114,7 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
       Donor Info:
       - Blood Type: ${donor.blood_type!}${donor.rh!}
 
-      Output the score and justification in the following JSON format:
+      Output in the following JSON format:
       {
         "score": <number>,
         "justification": "<string>"
@@ -128,7 +125,6 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
-      // Clean the text to be valid JSON
       const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanedText);
 
@@ -141,7 +137,7 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
       console.error('Error scoring donor with Gemini:', e);
       return {
         ...item,
-        score: 50, // Default score on error
+        score: 50,
         justification: 'Error during AI scoring.',
       };
     }
@@ -151,7 +147,6 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
 
   console.log(`Finished scoring ${scoredDonors.length} donors.`);
 
-  // Sort by score (descending) and then distance (ascending)
   scoredDonors.sort((a, b) => {
     if (a.score !== b.score) {
       return b.score - a.score;
