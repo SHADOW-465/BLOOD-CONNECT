@@ -65,7 +65,9 @@ export default function DashboardPage() {
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [myMatchedRequests, setMyMatchedRequests] = useState<RequestMatch[]>([])
+  const [allNearbyRequests, setAllNearbyRequests] = useState<any[]>([])
   const [mySentRequest, setMySentRequest] = useState<MySentRequest | null>(null)
+  const [activeTab, setActiveTab] = useState<"alerts" | "nearby">("alerts")
   const [impact, setImpact] = useState({ donations: 0, lives: 0, streak: 0 })
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -232,11 +234,19 @@ export default function DashboardPage() {
     else setMySentRequest(data as any)
   }
 
+  const loadAllNearbyRequests = async () => {
+    const res = await fetch("/api/requests")
+    if (!res.ok) return
+    const data = await res.json()
+    setAllNearbyRequests(data)
+  }
+
   useEffect(() => {
     if (!user) return
 
     // Initial data load
     loadMyMatchedRequests(user.id)
+    loadAllNearbyRequests()
     // Also check if the user has an active request on load
     const findMySentRequest = async () => {
       const { data } = await supabase
@@ -266,6 +276,19 @@ export default function DashboardPage() {
       )
       .subscribe()
 
+    const allRequestsChannel = supabase
+      .channel("all-emergency-requests")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "emergency_requests",
+        },
+        () => loadAllNearbyRequests(),
+      )
+      .subscribe()
+
     // If the user has a sent request, listen for updates on its matches
     let requesterChannel: any
     if (mySentRequest) {
@@ -286,6 +309,7 @@ export default function DashboardPage() {
 
     return () => {
       supabase.removeChannel(donorChannel)
+      supabase.removeChannel(allRequestsChannel)
       if (requesterChannel) {
         supabase.removeChannel(requesterChannel)
       }
@@ -467,66 +491,118 @@ export default function DashboardPage() {
             </NCard>
           ) : (
             <NCard className="lg:col-span-2">
-              <div className="flex items-center gap-3">
-                <Activity className="w-5 h-5 text-[#e74c3c]" />
-                <h3 className="font-semibold">My Alerts</h3>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Activity className="w-5 h-5 text-[#e74c3c]" />
+                  <h3 className="font-semibold">Requests</h3>
+                </div>
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-gray-200">
+                  <button
+                    onClick={() => setActiveTab("alerts")}
+                    className={`px-3 py-1 text-sm rounded-lg transition-all ${
+                      activeTab === "alerts" ? "bg-white shadow-sm" : "text-gray-600"
+                    }`}
+                  >
+                    My Alerts
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("nearby")}
+                    className={`px-3 py-1 text-sm rounded-lg transition-all ${
+                      activeTab === "nearby" ? "bg-white shadow-sm" : "text-gray-600"
+                    }`}
+                  >
+                    All Nearby
+                  </button>
+                </div>
               </div>
-              <ul className="mt-4 space-y-3">
-                {myMatchedRequests.length > 0 ? (
-                  myMatchedRequests.filter(r => r.emergency_requests).map((r) => (
-                    <li key={r.id} className="p-3 rounded-lg bg-red-50/70">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm">
-                          <div className="font-mono font-semibold">
-                            {r.emergency_requests!.blood_type}
-                            {r.emergency_requests!.rh}
+
+              {activeTab === "alerts" && (
+                <ul className="mt-4 space-y-3">
+                  {myMatchedRequests.length > 0 ? (
+                    myMatchedRequests.filter(r => r.emergency_requests).map((r) => (
+                      <li key={r.id} className="p-3 rounded-lg bg-red-50/70">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm">
+                            <div className="font-mono font-semibold">
+                              {r.emergency_requests!.blood_type}
+                              {r.emergency_requests!.rh}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Urgency: {r.emergency_requests!.urgency} &middot;{" "}
+                              {formatDistanceToNow(new Date(r.emergency_requests!.created_at), { addSuffix: true })}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-600">
-                            Urgency: {r.emergency_requests!.urgency} &middot;{" "}
-                            {formatDistanceToNow(new Date(r.emergency_requests!.created_at), { addSuffix: true })}
+                          <div className="text-right">
+                            <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
+                              <MapPin className="w-4 h-4" />
+                              {r.distance_km.toFixed(1)} km
+                            </div>
+                            <div className="text-xs text-gray-500">Score: {r.score.toFixed(0)}</div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
-                            <MapPin className="w-4 h-4" />
-                            {r.distance_km.toFixed(1)} km
-                          </div>
-                          <div className="text-xs text-gray-500">Score: {r.score.toFixed(0)}</div>
-                        </div>
-                      </div>
-                      <div className="mt-3 pt-3 border-t border-red-100 flex justify-between items-center">
-                        <div>
-                          <NButton
-                            onClick={() => handleShare(r.emergency_requests)}
-                            className="h-8 px-3 text-xs bg-blue-100 text-blue-800"
-                          >
-                            Share
-                          </NButton>
-                        </div>
-                        {r.status === "notified" ? (
-                          <div className="flex justify-end gap-2">
+                        <div className="mt-3 pt-3 border-t border-red-100 flex justify-between items-center">
+                          <div>
                             <NButton
-                              onClick={() => handleMatchResponse(r.id, "declined")}
-                              className="h-8 px-3 text-xs bg-gray-200 text-gray-700"
+                              onClick={() => handleShare(r.emergency_requests)}
+                              className="h-8 px-3 text-xs bg-blue-100 text-blue-800"
                             >
-                              Decline
-                            </NButton>
-                            <NButton onClick={() => handleMatchResponse(r.id, "accepted")} className="h-8 px-4 text-xs">
-                              Accept
+                              Share
                             </NButton>
                           </div>
-                        ) : (
-                          <p className="text-xs text-right font-semibold text-gray-700">
-                            You have responded: <span className="uppercase">{r.status}</span>
-                          </p>
-                        )}
-                      </div>
-                    </li>
-                  ))
-                ) : (
-                  <p className="text-sm text-gray-500">No active alerts for you right now. Great job!</p>
-                )}
-              </ul>
+                          {r.status === "notified" ? (
+                            <div className="flex justify-end gap-2">
+                              <NButton
+                                onClick={() => handleMatchResponse(r.id, "declined")}
+                                className="h-8 px-3 text-xs bg-gray-200 text-gray-700"
+                              >
+                                Decline
+                              </NButton>
+                              <NButton
+                                onClick={() => handleMatchResponse(r.id, "accepted")}
+                                className="h-8 px-4 text-xs"
+                              >
+                                Accept
+                              </NButton>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-right font-semibold text-gray-700">
+                              You have responded: <span className="uppercase">{r.status}</span>
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500 pt-4">No active alerts for you right now. Great job!</p>
+                  )}
+                </ul>
+              )}
+
+              {activeTab === "nearby" && (
+                <ul className="mt-4 space-y-3">
+                  {allNearbyRequests.length > 0 ? (
+                    allNearbyRequests.map((r) => (
+                      <li key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-100">
+                        <div className="text-sm">
+                          <div className="font-mono">
+                            {r.blood_type}
+                            {r.rh}
+                          </div>
+                          <div className="text-xs text-gray-600">Urgency: {r.urgency}</div>
+                        </div>
+                        <div className="text-xs text-gray-500 flex items-center gap-1">
+                          <MapPin className="w-4 h-4" />
+                          {loc && r.location_lat && r.location_lng
+                            ? `${kmDistance(loc.lat, loc.lng, r.location_lat, r.location_lng).toFixed(1)} km`
+                            : "—"}
+                        </div>
+                      </li>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500 pt-4">No nearby requests at the moment.</p>
+                  )}
+                </ul>
+              )}
             </NCard>
           )}
 
