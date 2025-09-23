@@ -42,6 +42,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [accepting, setAccepting] = useState<string | null>(null)
   const [requests, setRequests] = useState<RequestRow[]>([])
+  const [myRequests, setMyRequests] = useState<any[]>([])
   const [impact, setImpact] = useState({ donations: 0, lives: 0, streak: 0 })
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -140,6 +141,13 @@ export default function DashboardPage() {
   async function handleAcceptRequest(requestId: string) {
     setAccepting(requestId)
     try {
+      // First, fetch the full request details to get the requester_id
+      const requestRes = await fetch(`/api/requests/${requestId}`)
+      if (!requestRes.ok) {
+        throw new Error("Failed to fetch request details")
+      }
+      const request = await requestRes.json()
+
       const res = await fetch(`/api/requests/${requestId}/accept`, {
         method: "POST",
       })
@@ -147,6 +155,17 @@ export default function DashboardPage() {
         const errorData = await res.json()
         throw new Error(errorData.error || "Failed to accept request")
       }
+
+      // Create a notification for the requester
+      await fetch("/api/notifications", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: request.requester_id,
+          title: "Your blood request has been accepted!",
+          message: `A donor has accepted your request for ${request.blood_type}${request.rh} blood.`,
+        }),
+      })
+
       alert("Request accepted! The requester has been notified.")
       loadNearby() // to get updated request status
     } catch (error: any) {
@@ -163,11 +182,22 @@ export default function DashboardPage() {
     setRequests(data)
   }
 
+  async function loadMyRequests() {
+    const res = await fetch("/api/requests/mine")
+    if (!res.ok) return
+    const data = await res.json()
+    setMyRequests(data)
+  }
+
   useEffect(() => {
     loadNearby()
+    loadMyRequests()
     const channel = supabase
       .channel("requests")
-      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_requests" }, loadNearby)
+      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_requests" }, () => {
+        loadNearby()
+        loadMyRequests()
+      })
       .subscribe()
     return () => {
       supabase.removeChannel(channel)
@@ -242,29 +272,15 @@ export default function DashboardPage() {
 
           <NCard>
             <div className="flex items-center gap-3">
-              <Calendar className="w-5 h-5 text-[#e74c3c]" />
-              <h3 className="font-semibold">Next Donation</h3>
+              <UserIcon className="w-5 h-5 text-[#e74c3c]" />
+              <h3 className="font-semibold">My Requests</h3>
             </div>
             <div className="mt-4 text-center">
-              {nextDonationDate ? (
-                differenceInDays(nextDonationDate, new Date()) > 0 ? (
-                  <>
-                    <div className="text-2xl font-bold text-[#e74c3c]">
-                      {differenceInDays(nextDonationDate, new Date())} days
-                    </div>
-                    <div className="text-xs text-gray-600">until you're eligible</div>
-                  </>
-                ) : (
-                  <div className="text-lg font-semibold text-green-600">You are eligible to donate!</div>
-                )
-              ) : (
-                <div className="text-sm text-gray-600">No donation history</div>
-              )}
-              {appointments.length > 0 && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Next appointment: {formatDistanceToNow(new Date(appointments[0].scheduled_at), { addSuffix: true })}
-                </div>
-              )}
+              <div className="text-2xl font-bold text-[#e74c3c]">{myRequests.length}</div>
+              <div className="text-xs text-gray-600">Active requests</div>
+              <NButton onClick={() => document.getElementById("my-requests-section")?.scrollIntoView({ behavior: "smooth" })} className="mt-2 text-sm">
+                View
+              </NButton>
             </div>
           </NCard>
 
@@ -320,12 +336,88 @@ export default function DashboardPage() {
             </div>
           </NCard>
 
+          <NCard className="lg:col-span-3" id="my-requests-section">
+            <div className="flex items-center gap-3">
+              <UserIcon className="w-5 h-5 text-[#e74c3c]" />
+              <h3 className="font-semibold">My Requests</h3>
+            </div>
+            <div className="mt-4 grid gap-4 grid-cols-1 lg:grid-cols-2">
+              {myRequests.map((r) => (
+                <div key={r.id} className="bg-[#f0f3fa] rounded-2xl p-4 flex flex-col shadow-[8px_8px_16px_#d1d9e6,-8px_-8px_16px_#ffffff]">
+                  <div className="flex items-center justify-between">
+                    <div className="font-mono text-lg font-bold text-[#e74c3c]">
+                      {r.blood_type}
+                      {r.rh}
+                    </div>
+                    <div className={`text-xs font-semibold px-2 py-1 rounded-full ${r.status === "open" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
+                      {r.status}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-sm text-gray-600">
+                    <p>
+                      <strong>Patient:</strong> {r.name}, {r.age}
+                    </p>
+                    <p>
+                      <strong>Hospital:</strong> {r.hospital}
+                    </p>
+                    <p>
+                      <strong>Urgency:</strong> <span className="font-semibold text-red-500">{r.urgency}</span>
+                    </p>
+                    <p>
+                      <strong>Created:</strong> {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+                    </p>
+                  </div>
+                  <div className="mt-4">
+                    <h4 className="font-semibold text-sm">Donors ({r.donations.length})</h4>
+                    <div className="mt-2 space-y-2">
+                      {r.donations.length > 0 ? (
+                        r.donations.map((d: any) => (
+                          <div key={d.id} className="flex items-center gap-2">
+                            <img src={d.profiles.avatar_url || "/placeholder-user.jpg"} alt="donor" className="w-8 h-8 rounded-full" />
+                            <div>
+                              <p className="text-sm font-semibold">{d.profiles.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {d.profiles.blood_type}
+                                {d.profiles.rh}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-gray-500">No donors have accepted this request yet.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </NCard>
+
           <NCard>
-            <h3 className="font-semibold">Quick Actions</h3>
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <NButton onClick={() => location.assign("/schedule")}>Schedule Donation</NButton>
-              <NButton onClick={() => location.assign("/blood-onboarding/availability")}>Update Availability</NButton>
-              <NButton onClick={() => location.assign("/blood-onboarding/profile")}>View Profile</NButton>
+            <div className="flex items-center gap-3">
+              <Calendar className="w-5 h-5 text-[#e74c3c]" />
+              <h3 className="font-semibold">Next Donation</h3>
+            </div>
+            <div className="mt-4 text-center">
+              {nextDonationDate ? (
+                differenceInDays(nextDonationDate, new Date()) > 0 ? (
+                  <>
+                    <div className="text-2xl font-bold text-[#e74c3c]">
+                      {differenceInDays(nextDonationDate, new Date())} days
+                    </div>
+                    <div className="text-xs text-gray-600">until you're eligible</div>
+                  </>
+                ) : (
+                  <div className="text-lg font-semibold text-green-600">You are eligible to donate!</div>
+                )
+              ) : (
+                <div className="text-sm text-gray-600">No donation history</div>
+              )}
+              {appointments.length > 0 && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Next appointment: {formatDistanceToNow(new Date(appointments[0].scheduled_at), { addSuffix: true })}
+                </div>
+              )}
             </div>
           </NCard>
         </div>
