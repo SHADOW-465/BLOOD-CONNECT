@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<any | null>(null)
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [accepting, setAccepting] = useState<string | null>(null)
   const [requests, setRequests] = useState<RequestRow[]>([])
   const [impact, setImpact] = useState({ donations: 0, lives: 0, streak: 0 })
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
@@ -136,6 +137,25 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleAcceptRequest(requestId: string) {
+    setAccepting(requestId)
+    try {
+      const res = await fetch(`/api/requests/${requestId}/accept`, {
+        method: "POST",
+      })
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.error || "Failed to accept request")
+      }
+      alert("Request accepted! The requester has been notified.")
+      loadNearby() // to get updated request status
+    } catch (error: any) {
+      alert(`Error: ${error.message}`)
+    } finally {
+      setAccepting(null)
+    }
+  }
+
   async function loadNearby() {
     const res = await fetch("/api/requests")
     if (!res.ok) return
@@ -166,11 +186,11 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-5xl grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="w-full">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {profile && !profile.location_lat && (
             <NCard className="lg:col-span-3 bg-yellow-100/80">
-              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold text-yellow-800">Update Your Location</h2>
                   <p className="text-sm text-yellow-700">
@@ -187,7 +207,7 @@ export default function DashboardPage() {
             </NCard>
           )}
           <NCard className="lg:col-span-3">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-[#e74c3c]">Emergency Request</h2>
                 <p className="text-sm text-gray-600">Your location will be used to notify nearby compatible donors.</p>
@@ -204,7 +224,7 @@ export default function DashboardPage() {
               <HeartPulse className="w-5 h-5 text-[#e74c3c]" />
               <h3 className="font-semibold">Impact Summary</h3>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
                 <div className="text-2xl font-bold text-[#e74c3c]">{impact.lives}</div>
                 <div className="text-xs text-gray-600">Lives saved</div>
@@ -253,9 +273,9 @@ export default function DashboardPage() {
               <Activity className="w-5 h-5 text-[#e74c3c]" />
               <h3 className="font-semibold">Nearby Requests</h3>
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid gap-4 grid-cols-1 lg:grid-cols-2">
               {requestsWithDistance.map((r) => (
-                <div key={r.id} className="bg-white rounded-lg shadow p-4 flex flex-col">
+                <div key={r.id} className="bg-[#f0f3fa] rounded-2xl p-4 flex flex-col shadow-[8px_8px_16px_#d1d9e6,-8px_-8px_16px_#ffffff]">
                   <div className="flex items-center justify-between">
                     <div className="font-mono text-lg font-bold text-[#e74c3c]">
                       {r.blood_type}
@@ -282,11 +302,15 @@ export default function DashboardPage() {
                   </div>
                   <div className="mt-4 flex-grow" />
                   <div className="flex gap-2 mt-auto">
-                    <NButton className="w-full bg-green-500 text-white">
+                    <NButton
+                      onClick={() => handleAcceptRequest(r.id)}
+                      disabled={accepting === r.id || r.status === "matched"}
+                      className="w-full bg-green-500 text-white shadow-md hover:bg-green-600 disabled:bg-gray-400"
+                    >
                       <Check className="w-4 h-4 mr-2" />
-                      Accept
+                      {accepting === r.id ? "Accepting..." : r.status === "matched" ? "Accepted" : "Accept"}
                     </NButton>
-                    <NButton className="w-full bg-blue-500 text-white">
+                    <NButton className="w-full bg-blue-500 text-white shadow-md hover:bg-blue-600">
                       <Share2 className="w-4 h-4 mr-2" />
                       Share
                     </NButton>
