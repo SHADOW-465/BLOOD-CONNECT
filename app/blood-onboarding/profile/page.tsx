@@ -40,15 +40,15 @@ export default function BloodProfilePage() {
         setBloodType(profile.blood_type || "")
         setRh(profile.rh || "")
         setRadiusKm(profile.radius_km || 10)
-        setLatitude(profile.location_lat || null)
-        setLongitude(profile.location_lng || null)
+        setLatitude(profile.location_lat)
+        setLongitude(profile.location_lng)
       }
       setLoaded(true)
     }
     getUser()
   }, [router, supabase])
 
-  const canContinue = bloodType && rh && latitude && longitude
+  const canContinue = bloodType && rh
 
   const handleSetLocation = () => {
     setLocationStatus("loading")
@@ -67,27 +67,33 @@ export default function BloodProfilePage() {
   }
 
   const saveAndNext = async () => {
-    if (!user || !canContinue) return
+    if (!user) return
 
-    const { error } = await fetch("/api/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        blood_type: bloodType,
-        rh: rh,
-        radius_km: radiusKm,
-        location_lat: latitude,
-        location_lng: longitude,
-      }),
+    // First, save the non-location data as before
+    const { error: profileError } = await supabase.from("profiles").upsert({
+      id: user.id,
+      blood_type: bloodType,
+      rh: rh,
+      radius_km: radiusKm,
+      updated_at: new Date().toISOString(),
     })
 
-    if (error) {
-      console.error("Error updating profile", error)
-      alert("There was an error saving your profile.")
+    if (profileError) {
+      console.error("Error updating profile", profileError)
+      alert("Error saving profile.")
       return
     }
 
-    router.push("/blood-onboarding/availability")
+    // Then, if location is set, update it via the API
+    if (latitude && longitude) {
+      await fetch("/api/profile/location", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latitude, longitude }),
+      })
+    }
+
+    router.push("/dashboard")
   }
 
   if (!loaded) {
