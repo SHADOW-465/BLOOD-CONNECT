@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase/server"
-import { isCompatible, kmDistance } from "@/lib/compatibility"
+import { findMatchingDonors } from "@/lib/matching"
 
 export async function GET(req: Request) {
   const supabase = getSupabaseServerClient()
@@ -46,36 +46,28 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  // naive matching: pull available profiles and compute distance client-side later
-  const { data: candidates } = await supabase
-    .from("profiles")
-    .select("id,blood_type,rh,availability_status,location_lat,location_lng")
-    .eq("availability_status", "available")
+  // New: Use the Smart Matching Service
+  console.log("Calling Smart Matching Service for request:", inserted.id)
+  const matchedDonors = await findMatchingDonors(inserted, supabase)
 
-  if (candidates && inserted.location_lat && inserted.location_lng) {
-    const matches = candidates
-      .filter(
-        (d) => d.blood_type && d.rh && isCompatible(inserted.blood_type, inserted.rh, d.blood_type as any, d.rh as any),
-      )
-      .map((d) => {
-        const dist =
-          d.location_lat && d.location_lng
-            ? kmDistance(inserted.location_lat, inserted.location_lng, d.location_lat, d.location_lng)
-            : 1e9
-        return { donor_id: d.id, distance_km: dist }
-      })
-      .filter((m) => m.distance_km <= radius_km)
+  if (matchedDonors && matchedDonors.length > 0) {
+    console.log(`Found ${matchedDonors.length} matched donors. Creating match records.`)
+    const matchRecords = matchedDonors.map((match) => ({
+      request_id: inserted.id,
+      donor_id: match.donor.id,
+      distance_km: match.distance,
+      score: match.score,
+      status: "notified",
+    }))
 
-    if (matches.length) {
-      await supabase.from("request_matches").insert(
-        matches.map((m) => ({
-          request_id: inserted.id,
-          donor_id: m.donor_id,
-          distance_km: m.distance_km,
-          status: "notified",
-        })),
-      )
+    const { error: matchError } = await supabase.from("request_matches").insert(matchRecords)
+
+    if (matchError) {
+      console.error("Error creating request_matches:", matchError)
+      // Don't block the response for this, but log it.
     }
+  } else {
+    console.log("No donors found by the Smart Matching Service.")
   }
 
   return NextResponse.json(inserted, { status: 201 })
