@@ -293,6 +293,10 @@ export default function DashboardPage() {
   }, [supabase, user, mySentRequest])
 
   async function handleShare(request: RequestMatch["emergency_requests"]) {
+    if (!request) {
+      alert("Cannot share this request, details are missing.")
+      return
+    }
     const shareData = {
       title: "Urgent Blood Request",
       text: `An urgent request for ${request.blood_type}${request.rh} blood has been made near you. Your help can save a life.`,
@@ -469,17 +473,17 @@ export default function DashboardPage() {
               </div>
               <ul className="mt-4 space-y-3">
                 {myMatchedRequests.length > 0 ? (
-                  myMatchedRequests.map((r) => (
+                  myMatchedRequests.filter(r => r.emergency_requests).map((r) => (
                     <li key={r.id} className="p-3 rounded-lg bg-red-50/70">
                       <div className="flex items-center justify-between">
                         <div className="text-sm">
                           <div className="font-mono font-semibold">
-                            {r.emergency_requests.blood_type}
-                            {r.emergency_requests.rh}
+                            {r.emergency_requests!.blood_type}
+                            {r.emergency_requests!.rh}
                           </div>
                           <div className="text-xs text-gray-600">
-                            Urgency: {r.emergency_requests.urgency} &middot;{" "}
-                            {formatDistanceToNow(new Date(r.emergency_requests.created_at), { addSuffix: true })}
+                            Urgency: {r.emergency_requests!.urgency} &middot;{" "}
+                            {formatDistanceToNow(new Date(r.emergency_requests!.created_at), { addSuffix: true })}
                           </div>
                         </div>
                         <div className="text-right">
