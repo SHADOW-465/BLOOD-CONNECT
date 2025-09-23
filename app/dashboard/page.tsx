@@ -237,9 +237,22 @@ export default function DashboardPage() {
 
     // Initial data load
     loadMyMatchedRequests(user.id)
+    // Also check if the user has an active request on load
+    const findMySentRequest = async () => {
+      const { data } = await supabase
+        .from("emergency_requests")
+        .select("id")
+        .eq("requester_id", user.id)
+        .eq("status", "open")
+        .single()
+      if (data) {
+        loadMySentRequest(data.id)
+      }
+    }
+    findMySentRequest()
 
     // Set up real-time subscriptions
-    const matchesChannel = supabase
+    const donorChannel = supabase
       .channel("my-matched-requests")
       .on(
         "postgres_changes",
@@ -253,10 +266,76 @@ export default function DashboardPage() {
       )
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(matchesChannel)
+    // If the user has a sent request, listen for updates on its matches
+    let requesterChannel: any
+    if (mySentRequest) {
+      requesterChannel = supabase
+        .channel(`my-sent-request-${mySentRequest.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "request_matches",
+            filter: `request_id=eq.${mySentRequest.id}`,
+          },
+          () => loadMySentRequest(mySentRequest.id),
+        )
+        .subscribe()
     }
-  }, [supabase, user])
+
+    return () => {
+      supabase.removeChannel(donorChannel)
+      if (requesterChannel) {
+        supabase.removeChannel(requesterChannel)
+      }
+    }
+  }, [supabase, user, mySentRequest])
+
+  async function handleShare(request: RequestMatch["emergency_requests"]) {
+    const shareData = {
+      title: "Urgent Blood Request",
+      text: `An urgent request for ${request.blood_type}${request.rh} blood has been made near you. Your help can save a life.`,
+      url: window.location.origin, // Or a specific request page if it exists
+    }
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData)
+      } catch (error) {
+        console.error("Error sharing:", error)
+      }
+    } else {
+      // Fallback for browsers that don't support Web Share API
+      navigator.clipboard.writeText(`${shareData.text} \nFind out more: ${shareData.url}`)
+      alert("Request details copied to clipboard!")
+    }
+  }
+
+  async function handleMatchResponse(matchId: string, newStatus: "accepted" | "declined") {
+    // Optimistic update
+    const originalRequests = myMatchedRequests
+    setMyMatchedRequests((prev) =>
+      prev.map((r) => (r.id === matchId ? { ...r, status: newStatus } : r)),
+    )
+
+    try {
+      const response = await fetch(`/api/matches/${matchId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      })
+
+      if (!response.ok) {
+        // Revert on failure
+        setMyMatchedRequests(originalRequests)
+        alert("Failed to update status. Please try again.")
+      }
+    } catch (error) {
+      console.error("Failed to respond to match:", error)
+      setMyMatchedRequests(originalRequests)
+      alert("An error occurred. Please try again.")
+    }
+  }
 
   return (
     <>
@@ -391,23 +470,52 @@ export default function DashboardPage() {
               <ul className="mt-4 space-y-3">
                 {myMatchedRequests.length > 0 ? (
                   myMatchedRequests.map((r) => (
-                    <li key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-red-50">
-                      <div className="text-sm">
-                        <div className="font-mono font-semibold">
-                          {r.emergency_requests.blood_type}
-                          {r.emergency_requests.rh}
+                    <li key={r.id} className="p-3 rounded-lg bg-red-50/70">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm">
+                          <div className="font-mono font-semibold">
+                            {r.emergency_requests.blood_type}
+                            {r.emergency_requests.rh}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            Urgency: {r.emergency_requests.urgency} &middot;{" "}
+                            {formatDistanceToNow(new Date(r.emergency_requests.created_at), { addSuffix: true })}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-600">
-                          Urgency: {r.emergency_requests.urgency} &middot;{" "}
-                          {formatDistanceToNow(new Date(r.emergency_requests.created_at), { addSuffix: true })}
+                        <div className="text-right">
+                          <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
+                            <MapPin className="w-4 h-4" />
+                            {r.distance_km.toFixed(1)} km
+                          </div>
+                          <div className="text-xs text-gray-500">Score: {r.score.toFixed(0)}</div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
-                          <MapPin className="w-4 h-4" />
-                          {r.distance_km.toFixed(1)} km
+                      <div className="mt-3 pt-3 border-t border-red-100 flex justify-between items-center">
+                        <div>
+                          <NButton
+                            onClick={() => handleShare(r.emergency_requests)}
+                            className="h-8 px-3 text-xs bg-blue-100 text-blue-800"
+                          >
+                            Share
+                          </NButton>
                         </div>
-                        <div className="text-xs text-gray-500">Score: {r.score.toFixed(0)}</div>
+                        {r.status === "notified" ? (
+                          <div className="flex justify-end gap-2">
+                            <NButton
+                              onClick={() => handleMatchResponse(r.id, "declined")}
+                              className="h-8 px-3 text-xs bg-gray-200 text-gray-700"
+                            >
+                              Decline
+                            </NButton>
+                            <NButton onClick={() => handleMatchResponse(r.id, "accepted")} className="h-8 px-4 text-xs">
+                              Accept
+                            </NButton>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-right font-semibold text-gray-700">
+                            You have responded: <span className="uppercase">{r.status}</span>
+                          </p>
+                        )}
                       </div>
                     </li>
                   ))
