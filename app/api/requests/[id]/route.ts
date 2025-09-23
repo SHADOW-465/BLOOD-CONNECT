@@ -6,7 +6,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const { id } = params
 
   const { data: request, error } = await supabase
-    .from("emergency_requests")
+    .from("blood_requests")
     .select("*")
     .eq("id", id)
     .single()

@@ -1,5 +1,0 @@
-ALTER TABLE emergency_requests
-ADD COLUMN name TEXT,
-ADD COLUMN age INTEGER,
-ADD COLUMN hospital TEXT,
-ADD COLUMN contact TEXT;

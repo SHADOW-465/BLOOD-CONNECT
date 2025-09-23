@@ -18,13 +18,12 @@ export async function PATCH(req: Request) {
   }
 
   const { data, error } = await supabase
-    .from("profiles")
+    .from("user_profiles")
     .update({
-      location_lat: latitude,
-      location_lng: longitude,
-      updated_at: new Date().toISOString(),
+      latitude: latitude,
+      longitude: longitude,
     })
-    .eq("id", user.id)
+    .eq("user_id", user.id)
     .select()
     .single()
 
