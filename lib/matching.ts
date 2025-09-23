@@ -1,9 +1,9 @@
-import { createClient } from '@/lib/supabase/server';
-import { getCompatibleBloodTypes } from './compatibility';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { isCompatible, ABO, Rh } from './compatibility';
 import { Client, LatLng } from '@googlemaps/google-maps-services-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const supabase = createClient();
+const supabase = getSupabaseServerClient();
 const mapsClient = new Client({});
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -51,12 +51,10 @@ export async function findMatchingDonors(request: EmergencyRequest) {
   console.log(`Found ${profiles.length} available donors.`);
 
   // 2. Filter by blood type compatibility
-  const compatibleBloodTypes = getCompatibleBloodTypes(request.blood_type, request.rh);
-  const bloodTypeMatches = profiles.filter(p => {
-    if (!p.blood_type || !p.rh) return false;
-    const donorBloodType = `${p.blood_type}${p.rh}`;
-    return compatibleBloodTypes.includes(donorBloodType);
-  });
+  const bloodTypeMatches = profiles.filter((p) => {
+    if (!p.blood_type || !p.rh) return false
+    return isCompatible(request.blood_type as ABO, request.rh as Rh, p.blood_type as ABO, p.rh as Rh)
+  })
   console.log(`Found ${bloodTypeMatches.length} donors with compatible blood types.`);
 
   // 3. Filter by donation eligibility (e.g., last donation > 90 days ago)
@@ -117,7 +115,7 @@ export async function findMatchingDonors(request: EmergencyRequest) {
       - Blood Type: ${request.blood_type}${request.rh}
 
       Donor Info:
-      - Blood Type: ${donor.blood_type}${donor.rh}
+      - Blood Type: ${donor.blood_type!}${donor.rh!}
       - Medical Notes: ${donor.medical_notes || 'No notes provided.'}
 
       Output the score and justification in the following JSON format:
