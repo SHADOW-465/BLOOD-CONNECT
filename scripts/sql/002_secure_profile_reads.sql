@@ -1,7 +1,15 @@
--- First, drop the overly permissive policy from the previous attempt to ensure a clean state.
+-- In the base schema, the policy for reading profiles should be restrictive.
+-- A user should only be able to read their own profile.
+-- This is secure by default. The `001_init.sql` already sets this up.
+-- This file ensures that policy is in place and creates a secure way for the
+-- application to read a limited subset of data for matching purposes.
+
+-- Drop any potentially lingering permissive policies from old attempts.
 drop policy if exists "Allow authenticated read access on profiles" on public.profiles;
 
--- Restore the original, secure policy that only allows a user to read their own profile.
+-- Ensure the restrictive "read own profile" policy exists.
+-- The "if not exists" is not supported on `create policy`, so we drop and create.
+drop policy if exists "Own profile read" on public.profiles;
 create policy "Own profile read" on public.profiles
 for select
 using (auth.uid() = id);

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { NButton, NCard, NModal, NField, NToggle } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon } from "lucide-react"
+import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon, Share2 } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
 import { User } from "@supabase/supabase-js"
 import { differenceInDays, format, formatDistanceToNow } from "date-fns"
@@ -19,7 +19,7 @@ type RequestMatch = {
     rh: string
     urgency: string
     created_at: string
-  }
+  } | null
 }
 
 type MySentRequest = {
@@ -56,6 +56,8 @@ type Profile = {
   last_donation_date: string | null
   blood_type: BloodType | null
   rh: Rh | null
+  location_lat: number | null
+  location_lng: number | null
 }
 
 export default function DashboardPage() {
@@ -63,7 +65,6 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
-  const [loading, setLoading] = useState(false)
   const [myMatchedRequests, setMyMatchedRequests] = useState<RequestMatch[]>([])
   const [allNearbyRequests, setAllNearbyRequests] = useState<any[]>([])
   const [mySentRequest, setMySentRequest] = useState<MySentRequest | null>(null)
@@ -90,43 +91,36 @@ export default function DashboardPage() {
       const {
         data: { session },
       } = await supabase.auth.getSession()
-      if (!session) {
-        return
-      }
+      if (!session) return
       setUser(session.user)
 
-      // Fetch profile, donations, and appointments in parallel
-      const [profileRes, donationsRes, appointmentsRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", session.user.id).single(),
-        supabase.from("donations").select("id, donated_at").eq("donor_id", session.user.id),
-        supabase
-          .from("appointments")
-          .select("*")
-          .eq("donor_id", session.user.id)
-          .eq("status", "confirmed")
-          .order("scheduled_at", { ascending: true })
-          .limit(1),
-      ])
-
-      if (profileRes.data) {
-        setProfile(profileRes.data as Profile)
-        const currentProfile = profileRes.data
-        if (currentProfile.last_donation_date) {
-          const lastDonation = new Date(currentProfile.last_donation_date)
+      const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+      if (profileData) {
+        setProfile(profileData as Profile)
+        if (profileData.last_donation_date) {
+          const lastDonation = new Date(profileData.last_donation_date)
           const nextEligible = new Date(lastDonation.setDate(lastDonation.getDate() + 56))
           setNextDonationDate(nextEligible)
         }
-        if (currentProfile.blood_type && currentProfile.rh) {
-          setSosForm((prev) => ({ ...prev, bloodType: currentProfile.blood_type as BloodType, rh: currentProfile.rh as Rh }))
+        if (profileData.blood_type && profileData.rh) {
+          setSosForm((prev) => ({ ...prev, bloodType: profileData.blood_type as BloodType, rh: profileData.rh as Rh }))
         }
       }
 
-      if (donationsRes.data) {
-        setImpact({ donations: donationsRes.data.length, lives: donationsRes.data.length * 3, streak: 0 })
+      const { data: donations } = await supabase.from("donations").select("id").eq("donor_id", session.user.id)
+      if (donations) {
+        setImpact({ donations: donations.length, lives: donations.length * 3, streak: 0 })
       }
 
-      if (appointmentsRes.data) {
-        setAppointments(appointmentsRes.data)
+      const { data: appointmentData } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("donor_id", session.user.id)
+        .eq("status", "confirmed")
+        .order("scheduled_at", { ascending: true })
+        .limit(1)
+      if (appointmentData) {
+        setAppointments(appointmentData)
       }
     }
     getUserData()
@@ -134,163 +128,70 @@ export default function DashboardPage() {
 
   async function handleSendRequest() {
     if (!loc || !user) return
-    setLoading(true)
-    try {
-      const res = await fetch("/api/requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          blood_type: sosForm.bloodType,
-          rh: sosForm.rh,
-          urgency: sosForm.urgency,
-          units_needed: sosForm.units,
-          location_lat: loc.lat,
-          location_lng: loc.lng,
-          radius_km: 50, // Increased radius
-        }),
-      })
-      if (!res.ok) throw new Error("Request failed")
-      const newRequest = await res.json()
-      // Immediately load the new request into state
-      loadMySentRequest(newRequest.id)
-    } catch (e) {
-      console.log("[v0] SOS error", e)
-    } finally {
-      setLoading(false)
+    const { error } = await fetch("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        blood_type: sosForm.bloodType,
+        rh: sosForm.rh,
+        urgency: sosForm.urgency,
+        units_needed: sosForm.units,
+        location_lat: loc.lat,
+        location_lng: loc.lng,
+        radius_km: 50,
+      }),
+    })
+    if (error) {
+      alert("Failed to send request.")
+    } else {
       setIsSosModalOpen(false)
+      alert("Request sent successfully!")
     }
   }
 
   const loadMyMatchedRequests = async (userId: string) => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("request_matches")
-      .select(
-        `
-        id,
-        distance_km,
-        score,
-        status,
-        emergency_requests (
-          id,
-          blood_type,
-          rh,
-          urgency,
-          created_at
-        )
-      `,
-      )
+      .select(`*, emergency_requests(*)`)
       .eq("donor_id", userId)
-      .order("created_at", { referencedTable: "emergency_requests", ascending: false })
-
-    if (error) console.error("Error fetching matched requests:", error)
-    else setMyMatchedRequests(data as any)
-  }
-
-  const loadMySentRequest = async (requestId: string) => {
-    const { data, error } = await supabase
-      .from("emergency_requests")
-      .select(
-        `
-        id,
-        status,
-        created_at,
-        request_matches (
-          id,
-          distance_km,
-          score,
-          status,
-          profiles (id, name)
-        )
-      `,
-      )
-      .eq("id", requestId)
-      .single()
-
-    if (error) console.error("Error fetching sent request:", error)
-    else setMySentRequest(data as any)
+      .order("created_at", { ascending: false })
+    setMyMatchedRequests(data as any)
   }
 
   const loadAllNearbyRequests = async () => {
-    const res = await fetch("/api/requests")
-    if (!res.ok) return
-    const data = await res.json()
-    setAllNearbyRequests(data)
+    const { data } = await supabase.from("emergency_requests").select("*").eq("status", "open")
+    setAllNearbyRequests(data || [])
+  }
+
+  const loadMySentRequest = async (userId: string) => {
+    const { data } = await supabase
+      .from("emergency_requests")
+      .select(`*, request_matches(*, profiles(name))`)
+      .eq("requester_id", userId)
+      .eq("status", "open")
+      .single()
+    setMySentRequest(data as any)
   }
 
   useEffect(() => {
     if (!user) return
-
-    // Initial data load
     loadMyMatchedRequests(user.id)
     loadAllNearbyRequests()
-    // Also check if the user has an active request on load
-    const findMySentRequest = async () => {
-      const { data } = await supabase
-        .from("emergency_requests")
-        .select("id")
-        .eq("requester_id", user.id)
-        .eq("status", "open")
-        .single()
-      if (data) {
-        loadMySentRequest(data.id)
-      }
-    }
-    findMySentRequest()
+    loadMySentRequest(user.id)
 
-    // Set up real-time subscriptions
-    const donorChannel = supabase
-      .channel("my-matched-requests")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "request_matches",
-          filter: `donor_id=eq.${user.id}`,
-        },
-        () => loadMyMatchedRequests(user.id),
-      )
+    const changes = supabase
+      .channel("dashboard-changes")
+      .on("postgres_changes", { event: "*", schema: "public" }, () => {
+        loadMyMatchedRequests(user.id)
+        loadAllNearbyRequests()
+        loadMySentRequest(user.id)
+      })
       .subscribe()
-
-    const allRequestsChannel = supabase
-      .channel("all-emergency-requests")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "emergency_requests",
-        },
-        () => loadAllNearbyRequests(),
-      )
-      .subscribe()
-
-    // If the user has a sent request, listen for updates on its matches
-    let requesterChannel: any
-    if (mySentRequest) {
-      requesterChannel = supabase
-        .channel(`my-sent-request-${mySentRequest.id}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "request_matches",
-            filter: `request_id=eq.${mySentRequest.id}`,
-          },
-          () => loadMySentRequest(mySentRequest.id),
-        )
-        .subscribe()
-    }
 
     return () => {
-      supabase.removeChannel(donorChannel)
-      supabase.removeChannel(allRequestsChannel)
-      if (requesterChannel) {
-        supabase.removeChannel(requesterChannel)
-      }
+      supabase.removeChannel(changes)
     }
-  }, [supabase, user, mySentRequest])
+  }, [supabase, user])
 
   async function handleShare(request: RequestMatch["emergency_requests"]) {
     if (!request) {
@@ -299,45 +200,30 @@ export default function DashboardPage() {
     }
     const shareData = {
       title: "Urgent Blood Request",
-      text: `An urgent request for ${request.blood_type}${request.rh} blood has been made near you. Your help can save a life.`,
-      url: window.location.origin, // Or a specific request page if it exists
+      text: `An urgent request for ${request.blood_type}${request.rh} blood has been made. Your help can save a life.`,
+      url: window.location.origin,
     }
     if (navigator.share) {
-      try {
-        await navigator.share(shareData)
-      } catch (error) {
-        console.error("Error sharing:", error)
-      }
+      await navigator.share(shareData)
     } else {
-      // Fallback for browsers that don't support Web Share API
       navigator.clipboard.writeText(`${shareData.text} \nFind out more: ${shareData.url}`)
       alert("Request details copied to clipboard!")
     }
   }
 
-  async function handleMatchResponse(matchId: string, newStatus: "accepted") {
-    // Optimistic update
+  async function handleMatchResponse(matchId: string) {
     const originalRequests = myMatchedRequests
-    setMyMatchedRequests((prev) =>
-      prev.map((r) => (r.id === matchId ? { ...r, status: newStatus } : r)),
-    )
+    setMyMatchedRequests((prev) => prev.map((r) => (r.id === matchId ? { ...r, status: "accepted" } : r)))
 
-    try {
-      const response = await fetch(`/api/matches/${matchId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      })
+    const { error } = await fetch(`/api/matches/${matchId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "accepted" }),
+    })
 
-      if (!response.ok) {
-        // Revert on failure
-        setMyMatchedRequests(originalRequests)
-        alert("Failed to update status. Please try again.")
-      }
-    } catch (error) {
-      console.error("Failed to respond to match:", error)
+    if (error) {
       setMyMatchedRequests(originalRequests)
-      alert("An error occurred. Please try again.")
+      alert("Failed to update status.")
     }
   }
 
@@ -363,6 +249,7 @@ export default function DashboardPage() {
               </div>
             </NCard>
           )}
+
           <NCard className="lg:col-span-3">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <div>
@@ -444,9 +331,6 @@ export default function DashboardPage() {
                 <p className="text-sm text-gray-600">
                   Status: <span className="font-semibold text-blue-600">{mySentRequest.status.toUpperCase()}</span>
                 </p>
-                <p className="text-xs text-gray-500">
-                  Sent {formatDistanceToNow(new Date(mySentRequest.created_at), { addSuffix: true })}
-                </p>
                 <h4 className="mt-4 font-medium text-sm">Notified Donors:</h4>
                 <ul className="mt-2 space-y-2">
                   {mySentRequest.request_matches.map((match) => (
@@ -497,50 +381,40 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between">
                           <div className="text-sm">
                             <div className="font-mono font-semibold">
-                              {r.emergency_requests!.blood_type}
-                              {r.emergency_requests!.rh}
+                              {r.emergency_requests!.blood_type} {r.emergency_requests!.rh}
                             </div>
                             <div className="text-xs text-gray-600">
-                              Urgency: {r.emergency_requests!.urgency} &middot;{" "}
-                              {formatDistanceToNow(new Date(r.emergency_requests!.created_at), { addSuffix: true })}
+                              Urgency: {r.emergency_requests!.urgency}
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
-                              <MapPin className="w-4 h-4" />
-                              {r.distance_km.toFixed(1)} km
+                            <div className="text-xs text-gray-500">
+                              {r.distance_km.toFixed(1)} km away
                             </div>
-                            <div className="text-xs text-gray-500">Score: {r.score.toFixed(0)}</div>
                           </div>
                         </div>
                         <div className="mt-3 pt-3 border-t border-red-100 flex justify-between items-center">
-                          <div>
-                            <NButton
-                              onClick={() => handleShare(r.emergency_requests)}
-                              className="h-8 px-3 text-xs bg-blue-100 text-blue-800"
-                            >
-                              Share
-                            </NButton>
-                          </div>
+                          <NButton
+                            onClick={() => handleShare(r.emergency_requests)}
+                            className="h-8 px-3 text-xs bg-blue-100 text-blue-800"
+                          >
+                            <Share2 className="w-3 h-3 mr-1" />
+                            Share
+                          </NButton>
                           {r.status === "notified" ? (
-                            <div className="flex justify-end gap-2">
-                              <NButton
-                                onClick={() => handleMatchResponse(r.id, "accepted")}
-                                className="h-8 px-4 text-xs"
-                              >
-                                Accept
-                              </NButton>
-                            </div>
+                            <NButton onClick={() => handleMatchResponse(r.id)} className="h-8 px-4 text-xs">
+                              Accept
+                            </NButton>
                           ) : (
-                            <p className="text-xs text-right font-semibold text-gray-700">
-                              You have responded: <span className="uppercase">{r.status}</span>
+                            <p className="text-xs font-semibold text-gray-700">
+                              You responded: <span className="uppercase">{r.status}</span>
                             </p>
                           )}
                         </div>
                       </li>
                     ))
                   ) : (
-                    <p className="text-sm text-gray-500 pt-4">No active alerts for you right now. Great job!</p>
+                    <p className="text-sm text-gray-500 pt-4">No active alerts for you right now.</p>
                   )}
                 </ul>
               )}
@@ -552,8 +426,7 @@ export default function DashboardPage() {
                       <li key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-100">
                         <div className="text-sm">
                           <div className="font-mono">
-                            {r.blood_type}
-                            {r.rh}
+                            {r.blood_type} {r.rh}
                           </div>
                           <div className="text-xs text-gray-600">Urgency: {r.urgency}</div>
                         </div>
@@ -577,7 +450,6 @@ export default function DashboardPage() {
             <h3 className="font-semibold">Quick Actions</h3>
             <div className="mt-4 grid grid-cols-1 gap-3">
               <NButton onClick={() => location.assign("/schedule")}>Schedule Donation</NButton>
-              <NButton onClick={() => location.assign("/blood-onboarding/availability")}>Update Availability</NButton>
               <NButton onClick={() => location.assign("/blood-onboarding/profile")}>View Profile</NButton>
             </div>
           </NCard>
@@ -630,8 +502,8 @@ export default function DashboardPage() {
           <NButton onClick={() => setIsSosModalOpen(false)} className="bg-gray-200 text-gray-700">
             Cancel
           </NButton>
-          <NButton onClick={handleSendRequest} disabled={loading}>
-            {loading ? "Sending..." : "Send Request"}
+          <NButton onClick={handleSendRequest}>
+            Send Request
           </NButton>
         </div>
       </NModal>

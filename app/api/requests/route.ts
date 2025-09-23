@@ -46,12 +46,10 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  // New: Use the Smart Matching Service
-  console.log("Calling Smart Matching Service for request:", inserted.id)
+  // Use the Smart Matching Service
   const matchedDonors = await findMatchingDonors(inserted, supabase)
 
   if (matchedDonors && matchedDonors.length > 0) {
-    console.log(`Found ${matchedDonors.length} matched donors. Creating match records.`)
     const matchRecords = matchedDonors.map((match) => ({
       request_id: inserted.id,
       donor_id: match.donor.id,
@@ -64,10 +62,7 @@ export async function POST(req: Request) {
 
     if (matchError) {
       console.error("Error creating request_matches:", matchError)
-      // Don't block the response for this, but log it.
     }
-  } else {
-    console.log("No donors found by the Smart Matching Service.")
   }
 
   return NextResponse.json(inserted, { status: 201 })
