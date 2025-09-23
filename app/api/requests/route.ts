@@ -25,7 +25,20 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   const body = await req.json()
-  const { blood_type, rh, urgency, location_lat, location_lng, units_needed = 1, radius_km = 10 } = body
+  const {
+    blood_type,
+    rh,
+    urgency,
+    location_lat,
+    location_lng,
+    units_needed = 1,
+    radius_km = 10,
+    name,
+    age,
+    patient_status,
+    hospital,
+    contact_number,
+  } = body
 
   const { data: inserted, error } = await supabase
     .from("emergency_requests")
@@ -40,6 +53,11 @@ export async function POST(req: Request) {
       radius_km,
       status: "open",
       expires_at: new Date(Date.now() + 1000 * 60 * 60).toISOString(),
+      name,
+      age,
+      patient_status,
+      hospital,
+      contact_number,
     })
     .select()
     .single()

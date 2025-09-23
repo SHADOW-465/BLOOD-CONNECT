@@ -17,6 +17,11 @@ type RequestRow = {
   location_lng: number | null
   status: string
   created_at: string
+  name: string
+  age: number
+  patient_status: string
+  hospital: string
+  contact_number: string
 }
 
 type Appointment = {
@@ -46,6 +51,11 @@ export default function DashboardPage() {
     rh: "+" as Rh,
     urgency: "high" as Urgency,
     units: 1,
+    name: "",
+    age: "",
+    patient_status: "",
+    hospital: "",
+    contact_number: "",
   })
 
   useEffect(() => {
@@ -112,6 +122,11 @@ export default function DashboardPage() {
           location_lat: loc.lat,
           location_lng: loc.lng,
           radius_km: 10,
+          name: sosForm.name,
+          age: parseInt(sosForm.age, 10),
+          patient_status: sosForm.patient_status,
+          hospital: sosForm.hospital,
+          contact_number: sosForm.contact_number,
         }),
       })
       if (!res.ok) throw new Error("Request failed")
@@ -236,29 +251,66 @@ export default function DashboardPage() {
             </div>
           </NCard>
 
-          <NCard className="lg:col-span-2">
-            <div className="flex items-center gap-3">
+          <div className="lg:col-span-3">
+            <div className="flex items-center gap-3 mb-4">
               <Activity className="w-5 h-5 text-[#e74c3c]" />
               <h3 className="font-semibold">Nearby Requests</h3>
             </div>
-            <ul className="mt-4 space-y-3">
+            <div className="grid gap-4">
               {requestsWithDistance.map((r) => (
-                <li key={r.id} className="flex items-center justify-between">
-                  <div className="text-sm">
-                    <div className="font-mono">
-                      {r.blood_type}
-                      {r.rh}
+                <NCard key={r.id}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-2xl font-bold text-red-500 bg-red-100 rounded-full w-12 h-12 flex items-center justify-center">
+                          {r.blood_type}
+                          {r.rh}
+                        </div>
+                        <div>
+                          <div className="font-bold text-lg">{r.name}</div>
+                          <div className="text-sm text-gray-500">
+                            {r.age} years old • {r.patient_status}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-sm text-gray-600 mt-2">
+                        {r.hospital}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-600">Urgency: {r.urgency}</div>
+                    <div className="text-right">
+                      <div className="font-mono text-sm text-gray-500">
+                        {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+                      </div>
+                      <div className="text-xs text-gray-500 flex items-center gap-1 justify-end mt-1">
+                        <MapPin className="w-4 h-4" />
+                        {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                    <MapPin className="w-4 h-4" />
-                    {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
+
+                  <div className="mt-4 pt-4 border-t flex justify-end gap-2">
+                    <NButton
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        /* Implement Share */
+                      }}
+                    >
+                      Share
+                    </NButton>
+                    <NButton
+                      size="sm"
+                      onClick={() => {
+                        /* Implement Accept */
+                      }}
+                    >
+                      Accept
+                    </NButton>
                   </div>
-                </li>
+                </NCard>
               ))}
-            </ul>
-          </NCard>
+            </div>
+          </div>
 
           <NCard>
             <h3 className="font-semibold">Quick Actions</h3>
@@ -311,6 +363,32 @@ export default function DashboardPage() {
             type="number"
             value={sosForm.units}
             onChange={(e) => setSosForm({ ...sosForm, units: parseInt(e.target.value, 10) || 1 })}
+          />
+          <NField
+            label="Name"
+            value={sosForm.name}
+            onChange={(e) => setSosForm({ ...sosForm, name: e.target.value })}
+          />
+          <NField
+            label="Age"
+            type="number"
+            value={sosForm.age}
+            onChange={(e) => setSosForm({ ...sosForm, age: e.target.value })}
+          />
+          <NField
+            label="Medical Condition"
+            value={sosForm.patient_status}
+            onChange={(e) => setSosForm({ ...sosForm, patient_status: e.target.value })}
+          />
+          <NField
+            label="Hospital"
+            value={sosForm.hospital}
+            onChange={(e) => setSosForm({ ...sosForm, hospital: e.target.value })}
+          />
+          <NField
+            label="Contact Number"
+            value={sosForm.contact_number}
+            onChange={(e) => setSosForm({ ...sosForm, contact_number: e.target.value })}
           />
         </div>
         <div className="mt-6 flex justify-end gap-3">
