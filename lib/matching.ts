@@ -40,7 +40,7 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
   // 1. Fetch all available donor profiles from Supabase
   const { data: profiles, error } = await supabase
     .from('profiles')
-    .select('id, name, blood_type, rh, last_donation_date, location_lat, location_lng, availability_status, medical_notes')
+    .select('id, name, blood_type, rh, last_donation_date, location_lat, location_lng, availability_status')
     .eq('availability_status', 'available');
 
   if (error) {
@@ -116,7 +116,6 @@ export async function findMatchingDonors(request: EmergencyRequest, supabase: Su
 
       Donor Info:
       - Blood Type: ${donor.blood_type!}${donor.rh!}
-      - Medical Notes: ${donor.medical_notes || 'No notes provided.'}
 
       Output the score and justification in the following JSON format:
       {
