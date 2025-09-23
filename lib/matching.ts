@@ -1,9 +1,8 @@
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { isCompatible, ABO, Rh } from './compatibility';
 import { Client, LatLng } from '@googlemaps/google-maps-services-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const supabase = getSupabaseServerClient();
 const mapsClient = new Client({});
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -32,9 +31,10 @@ interface DonorProfile {
 /**
  * Finds suitable donors for a given emergency request.
  * @param request The emergency request.
+ * @param supabase The Supabase client instance.
  * @returns A list of matched donors with scores and distances.
  */
-export async function findMatchingDonors(request: EmergencyRequest) {
+export async function findMatchingDonors(request: EmergencyRequest, supabase: SupabaseClient) {
   console.log('Starting donor matching process for request:', request.id);
 
   // 1. Fetch all available donor profiles from Supabase

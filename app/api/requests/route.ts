@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
   // New: Use the Smart Matching Service
   console.log("Calling Smart Matching Service for request:", inserted.id)
-  const matchedDonors = await findMatchingDonors(inserted)
+  const matchedDonors = await findMatchingDonors(inserted, supabase)
 
   if (matchedDonors && matchedDonors.length > 0) {
     console.log(`Found ${matchedDonors.length} matched donors. Creating match records.`)
