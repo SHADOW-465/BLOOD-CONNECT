@@ -14,7 +14,7 @@ const SidebarContent = ({ isMinimized, isMobile, setMobileOpen }: { isMinimized:
   const pathname = usePathname()
   const navItems = [
     { href: "/dashboard", icon: Home, label: "Dashboard" },
-    { href: "/blood-onboarding/profile", icon: User, label: "Profile" },
+    { href: "/profile", icon: User, label: "Profile" },
     { href: "/notifications", icon: Bell, label: "Notifications" },
     { href: "/settings", icon: Settings, label: "Settings" },
   ]
