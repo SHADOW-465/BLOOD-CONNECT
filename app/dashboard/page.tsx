@@ -8,15 +8,34 @@ import { kmDistance } from "@/lib/compatibility"
 import { User } from "@supabase/supabase-js"
 import { differenceInDays, formatDistanceToNow } from "date-fns"
 
-type RequestRow = {
+type RequestMatch = {
   id: string
-  blood_type: string
-  rh: string
-  urgency: string
-  location_lat: number | null
-  location_lng: number | null
+  distance_km: number
+  score: number
+  status: string
+  emergency_requests: {
+    id: string
+    blood_type: string
+    rh: string
+    urgency: string
+    created_at: string
+  }
+}
+
+type MySentRequest = {
+  id: string
   status: string
   created_at: string
+  request_matches: {
+    id: string
+    distance_km: number
+    score: number
+    status: string
+    profiles: {
+      id: string
+      name: string | null
+    } | null
+  }[]
 }
 
 type Appointment = {
@@ -35,7 +54,8 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null)
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
-  const [requests, setRequests] = useState<RequestRow[]>([])
+  const [myMatchedRequests, setMyMatchedRequests] = useState<RequestMatch[]>([])
+  const [mySentRequest, setMySentRequest] = useState<MySentRequest | null>(null)
   const [impact, setImpact] = useState({ donations: 0, lives: 0, streak: 0 })
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -63,35 +83,39 @@ export default function DashboardPage() {
       }
       setUser(session.user)
 
-      const { data: profile } = await supabase.from("profiles").select("last_donation_date, blood_type, rh").eq("id", session.user.id).single()
-      if (profile) {
+      // Fetch profile, donations, and appointments in parallel
+      const [profileRes, donationsRes, appointmentsRes] = await Promise.all([
+        supabase.from("profiles").select("last_donation_date, blood_type, rh").eq("id", session.user.id).single(),
+        supabase.from("donations").select("id, donated_at").eq("donor_id", session.user.id),
+        supabase
+          .from("appointments")
+          .select("*")
+          .eq("donor_id", session.user.id)
+          .eq("status", "confirmed")
+          .order("scheduled_at", { ascending: true })
+          .limit(1),
+      ])
+
+      if (profileRes.data) {
+        const profile = profileRes.data
         if (profile.last_donation_date) {
           const lastDonation = new Date(profile.last_donation_date)
           const nextEligible = new Date(lastDonation.setDate(lastDonation.getDate() + 56))
           setNextDonationDate(nextEligible)
         }
         if (profile.blood_type && profile.rh) {
-          setSosForm((prev) => ({ ...prev, bloodType: profile.blood_type, rh: profile.rh }))
+          setSosForm((prev) => ({ ...prev, bloodType: profile.blood_type as BloodType, rh: profile.rh as Rh }))
         }
       }
 
-      const { data: donations } = await supabase.from("donations").select("id, donated_at").eq("donor_id", session.user.id)
-      if (donations) {
-        setImpact({ donations: donations.length, lives: donations.length * 3, streak: 0 })
+      if (donationsRes.data) {
+        setImpact({ donations: donationsRes.data.length, lives: donationsRes.data.length * 3, streak: 0 })
       }
 
-      const { data: appointmentData } = await supabase
-        .from("appointments")
-        .select("*")
-        .eq("donor_id", session.user.id)
-        .eq("status", "confirmed")
-        .order("scheduled_at", { ascending: true })
-        .limit(1)
-      if (appointmentData) {
-        setAppointments(appointmentData)
+      if (appointmentsRes.data) {
+        setAppointments(appointmentsRes.data)
       }
     }
-
     getUserData()
   }, [supabase])
 
@@ -101,19 +125,21 @@ export default function DashboardPage() {
     try {
       const res = await fetch("/api/requests", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requester_id: user.id,
           blood_type: sosForm.bloodType,
           rh: sosForm.rh,
           urgency: sosForm.urgency,
           units_needed: sosForm.units,
           location_lat: loc.lat,
           location_lng: loc.lng,
-          radius_km: 10,
+          radius_km: 50, // Increased radius
         }),
       })
       if (!res.ok) throw new Error("Request failed")
-      await loadNearby()
+      const newRequest = await res.json()
+      // Immediately load the new request into state
+      loadMySentRequest(newRequest.id)
     } catch (e) {
       console.log("[v0] SOS error", e)
     } finally {
@@ -122,33 +148,80 @@ export default function DashboardPage() {
     }
   }
 
-  async function loadNearby() {
-    const res = await fetch("/api/requests")
-    if (!res.ok) return
-    const data = (await res.json()) as RequestRow[]
-    setRequests(data)
+  const loadMyMatchedRequests = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("request_matches")
+      .select(
+        `
+        id,
+        distance_km,
+        score,
+        status,
+        emergency_requests (
+          id,
+          blood_type,
+          rh,
+          urgency,
+          created_at
+        )
+      `,
+      )
+      .eq("donor_id", userId)
+      .order("created_at", { referencedTable: "emergency_requests", ascending: false })
+
+    if (error) console.error("Error fetching matched requests:", error)
+    else setMyMatchedRequests(data as any)
+  }
+
+  const loadMySentRequest = async (requestId: string) => {
+    const { data, error } = await supabase
+      .from("emergency_requests")
+      .select(
+        `
+        id,
+        status,
+        created_at,
+        request_matches (
+          id,
+          distance_km,
+          score,
+          status,
+          profiles (id, name)
+        )
+      `,
+      )
+      .eq("id", requestId)
+      .single()
+
+    if (error) console.error("Error fetching sent request:", error)
+    else setMySentRequest(data as any)
   }
 
   useEffect(() => {
-    loadNearby()
-    const channel = supabase
-      .channel("requests")
-      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_requests" }, loadNearby)
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase])
+    if (!user) return
 
-  const requestsWithDistance = useMemo(() => {
-    if (!loc) return requests
-    return requests
-      .map((r) => ({
-        ...r,
-        dist: r.location_lat && r.location_lng ? kmDistance(loc.lat, loc.lng, r.location_lat, r.location_lng) : null,
-      }))
-      .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9))
-  }, [requests, loc])
+    // Initial data load
+    loadMyMatchedRequests(user.id)
+
+    // Set up real-time subscriptions
+    const matchesChannel = supabase
+      .channel("my-matched-requests")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "request_matches",
+          filter: `donor_id=eq.${user.id}`,
+        },
+        () => loadMyMatchedRequests(user.id),
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(matchesChannel)
+    }
+  }, [supabase, user])
 
   return (
     <>
@@ -216,29 +289,69 @@ export default function DashboardPage() {
             </div>
           </NCard>
 
-          <NCard className="lg:col-span-2">
-            <div className="flex items-center gap-3">
-              <Activity className="w-5 h-5 text-[#e74c3c]" />
-              <h3 className="font-semibold">Nearby Requests</h3>
-            </div>
-            <ul className="mt-4 space-y-3">
-              {requestsWithDistance.map((r) => (
-                <li key={r.id} className="flex items-center justify-between">
-                  <div className="text-sm">
-                    <div className="font-mono">
-                      {r.blood_type}
-                      {r.rh}
-                    </div>
-                    <div className="text-xs text-gray-600">Urgency: {r.urgency}</div>
-                  </div>
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                    <MapPin className="w-4 h-4" />
-                    {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </NCard>
+          {mySentRequest ? (
+            <NCard className="lg:col-span-3">
+              <div className="flex items-center gap-3">
+                <BellRing className="w-5 h-5 text-[#e74c3c]" />
+                <h3 className="font-semibold">My Active Request Status</h3>
+              </div>
+              <div className="mt-4">
+                <p className="text-sm text-gray-600">
+                  Status: <span className="font-semibold text-blue-600">{mySentRequest.status.toUpperCase()}</span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  Sent {formatDistanceToNow(new Date(mySentRequest.created_at), { addSuffix: true })}
+                </p>
+                <h4 className="mt-4 font-medium text-sm">Notified Donors:</h4>
+                <ul className="mt-2 space-y-2">
+                  {mySentRequest.request_matches.map((match) => (
+                    <li key={match.id} className="flex justify-between items-center text-xs p-2 bg-gray-50 rounded">
+                      <span>{match.profiles?.name || "Anonymous Donor"}</span>
+                      <div className="flex gap-4">
+                        <span>{match.distance_km.toFixed(1)} km</span>
+                        <span>Score: {match.score.toFixed(0)}</span>
+                        <span className="font-semibold">{match.status.toUpperCase()}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </NCard>
+          ) : (
+            <NCard className="lg:col-span-2">
+              <div className="flex items-center gap-3">
+                <Activity className="w-5 h-5 text-[#e74c3c]" />
+                <h3 className="font-semibold">My Alerts</h3>
+              </div>
+              <ul className="mt-4 space-y-3">
+                {myMatchedRequests.length > 0 ? (
+                  myMatchedRequests.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-red-50">
+                      <div className="text-sm">
+                        <div className="font-mono font-semibold">
+                          {r.emergency_requests.blood_type}
+                          {r.emergency_requests.rh}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Urgency: {r.emergency_requests.urgency} &middot;{" "}
+                          {formatDistanceToNow(new Date(r.emergency_requests.created_at), { addSuffix: true })}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
+                          <MapPin className="w-4 h-4" />
+                          {r.distance_km.toFixed(1)} km
+                        </div>
+                        <div className="text-xs text-gray-500">Score: {r.score.toFixed(0)}</div>
+                      </div>
+                    </li>
+                  ))
+                ) : (
+                  <p className="text-sm text-gray-500">No active alerts for you right now. Great job!</p>
+                )}
+              </ul>
+            </NCard>
+          )}
 
           <NCard>
             <h3 className="font-semibold">Quick Actions</h3>
