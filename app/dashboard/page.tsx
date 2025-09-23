@@ -49,9 +49,19 @@ type BloodType = "A" | "B" | "AB" | "O"
 type Rh = "+" | "-"
 type Urgency = "low" | "medium" | "high" | "critical"
 
+type Profile = {
+  id: string
+  name: string | null
+  availability_status: "available" | "unavailable"
+  last_donation_date: string | null
+  blood_type: BloodType | null
+  rh: Rh | null
+}
+
 export default function DashboardPage() {
   const supabase = getSupabaseBrowserClient()
   const [user, setUser] = useState<User | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [myMatchedRequests, setMyMatchedRequests] = useState<RequestMatch[]>([])
@@ -85,7 +95,7 @@ export default function DashboardPage() {
 
       // Fetch profile, donations, and appointments in parallel
       const [profileRes, donationsRes, appointmentsRes] = await Promise.all([
-        supabase.from("profiles").select("last_donation_date, blood_type, rh").eq("id", session.user.id).single(),
+        supabase.from("profiles").select("*").eq("id", session.user.id).single(),
         supabase.from("donations").select("id, donated_at").eq("donor_id", session.user.id),
         supabase
           .from("appointments")
@@ -97,14 +107,15 @@ export default function DashboardPage() {
       ])
 
       if (profileRes.data) {
-        const profile = profileRes.data
-        if (profile.last_donation_date) {
-          const lastDonation = new Date(profile.last_donation_date)
+        setProfile(profileRes.data as Profile)
+        const currentProfile = profileRes.data
+        if (currentProfile.last_donation_date) {
+          const lastDonation = new Date(currentProfile.last_donation_date)
           const nextEligible = new Date(lastDonation.setDate(lastDonation.getDate() + 56))
           setNextDonationDate(nextEligible)
         }
-        if (profile.blood_type && profile.rh) {
-          setSosForm((prev) => ({ ...prev, bloodType: profile.blood_type as BloodType, rh: profile.rh as Rh }))
+        if (currentProfile.blood_type && currentProfile.rh) {
+          setSosForm((prev) => ({ ...prev, bloodType: currentProfile.blood_type as BloodType, rh: currentProfile.rh as Rh }))
         }
       }
 
@@ -118,6 +129,30 @@ export default function DashboardPage() {
     }
     getUserData()
   }, [supabase])
+
+  async function handleAvailabilityChange(isAvailable: boolean) {
+    const originalProfile = profile
+    const newStatus = isAvailable ? "available" : "unavailable"
+
+    // Optimistic update
+    setProfile((prev) => (prev ? { ...prev, availability_status: newStatus } : null))
+
+    try {
+      const response = await fetch("/api/profile/availability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ availability_status: newStatus }),
+      })
+
+      if (!response.ok) {
+        // Revert on failure
+        setProfile(originalProfile)
+      }
+    } catch (error) {
+      console.error("Failed to update availability:", error)
+      setProfile(originalProfile)
+    }
+  }
 
   async function handleSendRequest() {
     if (!loc || !user) return
@@ -267,7 +302,16 @@ export default function DashboardPage() {
               <h3 className="font-semibold">Next Donation</h3>
             </div>
             <div className="mt-4 text-center">
-              {nextDonationDate ? (
+              {appointments.length > 0 ? (
+                <div>
+                  <p className="text-sm font-medium">Your next appointment is:</p>
+                  <p className="text-lg font-bold text-[#e74c3c] mt-1">
+                    {format(new Date(appointments[0].scheduled_at), "EEEE, MMM d")}
+                  </p>
+                  <p className="text-md font-semibold">{format(new Date(appointments[0].scheduled_at), "p")}</p>
+                  <p className="text-xs text-gray-500 mt-1">{appointments[0].location}</p>
+                </div>
+              ) : nextDonationDate ? (
                 differenceInDays(nextDonationDate, new Date()) > 0 ? (
                   <>
                     <div className="text-2xl font-bold text-[#e74c3c]">
@@ -276,17 +320,38 @@ export default function DashboardPage() {
                     <div className="text-xs text-gray-600">until you're eligible</div>
                   </>
                 ) : (
-                  <div className="text-lg font-semibold text-green-600">You are eligible to donate!</div>
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-lg font-semibold text-green-600">You are eligible to donate!</p>
+                    <NButton onClick={() => (window.location.href = "/schedule")} className="w-full h-10">
+                      Schedule Now
+                    </NButton>
+                  </div>
                 )
               ) : (
                 <div className="text-sm text-gray-600">No donation history</div>
               )}
-              {appointments.length > 0 && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Next appointment: {formatDistanceToNow(new Date(appointments[0].scheduled_at), { addSuffix: true })}
-                </div>
+            </div>
+          </NCard>
+
+          <NCard>
+            <div className="flex items-center gap-3">
+              <UserIcon className="w-5 h-5 text-[#e74c3c]" />
+              <h3 className="font-semibold">My Status</h3>
+            </div>
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">Accepting requests</span>
+              {profile && (
+                <NToggle
+                  checked={profile.availability_status === "available"}
+                  onChange={handleAvailabilityChange}
+                />
               )}
             </div>
+            <p className="mt-2 text-xs text-gray-500">
+              {profile?.availability_status === "available"
+                ? "You will receive alerts for new requests."
+                : "You are currently unavailable and won't be notified."}
+            </p>
           </NCard>
 
           {mySentRequest ? (
