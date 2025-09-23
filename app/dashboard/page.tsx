@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { NButton, NCard, NModal, NField } from "@/components/nui"
+import { NButton, NCard, NModal, NField, NToggle } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
