@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { isCompatible, kmDistance } from "@/lib/compatibility"
+import { Database } from "@/lib/supabase/types"
 
 export async function GET(req: Request) {
   const supabase = getSupabaseServerClient()
@@ -8,9 +9,9 @@ export async function GET(req: Request) {
   const radius = Number(url.searchParams.get("radius_km") || 50)
 
   const { data: requests, error } = await supabase
-    .from("emergency_requests")
+    .from("blood_requests")
     .select("*")
-    .eq("status", "open")
+    .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(50)
 
@@ -24,71 +25,83 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-  const body = await req.json()
+
+  const body: Partial<Database["public"]["Tables"]["blood_requests"]["Insert"]> = await req.json()
+
   const {
     blood_type,
-    rh,
+    rh_factor,
     urgency,
-    location_lat,
-    location_lng,
+    latitude,
+    longitude,
     units_needed = 1,
-    radius_km = 10,
-    name,
-    age,
-    hospital,
-    contact,
+    patient_name,
+    hospital_name,
+    contact_phone,
+    notes,
+    required_by,
   } = body
 
+  if (!blood_type || !rh_factor || !urgency || !latitude || !longitude || !patient_name || !hospital_name || !contact_phone || !required_by) {
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  }
+
   const { data: inserted, error } = await supabase
-    .from("emergency_requests")
+    .from("blood_requests")
     .insert({
       requester_id: user.id,
       blood_type,
-      rh,
+      rh_factor,
       urgency,
-      location_lat,
-      location_lng,
+      latitude,
+      longitude,
       units_needed,
-      radius_km,
-      status: "open",
-      expires_at: new Date(Date.now() + 1000 * 60 * 60).toISOString(),
-      name,
-      age,
-      hospital,
-      contact,
+      patient_name,
+      hospital_name,
+      contact_phone,
+      notes,
+      required_by,
+      status: "active",
     })
     .select()
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  // naive matching: pull available profiles and compute distance client-side later
-  const { data: candidates } = await supabase
-    .from("profiles")
-    .select("id,blood_type,rh,availability_status,location_lat,location_lng")
-    .eq("availability_status", "available")
-
-  if (candidates && inserted.location_lat && inserted.location_lng) {
-    const matches = candidates
-      .filter(
-        (d) => d.blood_type && d.rh && isCompatible(inserted.blood_type, inserted.rh, d.blood_type as any, d.rh as any),
+  // Find matching donors
+  const { data: candidates } = await supabase.from("users").select(`
+      id,
+      availability_status,
+      user_profiles (
+        blood_type,
+        rh_factor,
+        latitude,
+        longitude
       )
-      .map((d) => {
-        const dist =
-          d.location_lat && d.location_lng
-            ? kmDistance(inserted.location_lat, inserted.location_lng, d.location_lat, d.location_lng)
-            : 1e9
-        return { donor_id: d.id, distance_km: dist }
+    `).eq("availability_status", "available")
+
+  if (candidates && inserted.latitude && inserted.longitude) {
+    const matches = candidates
+      .filter((c) => {
+        const profile = Array.isArray(c.user_profiles) ? c.user_profiles[0] : c.user_profiles
+        return profile && profile.blood_type && profile.rh_factor && isCompatible(inserted.blood_type, inserted.rh_factor, profile.blood_type as any, profile.rh_factor as any)
       })
-      .filter((m) => m.distance_km <= radius_km)
+      .map((c) => {
+        const profile = Array.isArray(c.user_profiles) ? c.user_profiles[0] : c.user_profiles
+        const dist =
+          profile && profile.latitude && profile.longitude
+            ? kmDistance(inserted.latitude, inserted.longitude, profile.latitude, profile.longitude)
+            : 1e9
+        return { donor_id: c.id, distance_km: dist }
+      })
+      .filter((m) => m.distance_km <= (body.radius_km || 10)) // Use radius from request body or default to 10km
 
     if (matches.length) {
-      await supabase.from("request_matches").insert(
+      await supabase.from("request_responses").insert(
         matches.map((m) => ({
           request_id: inserted.id,
           donor_id: m.donor_id,
-          distance_km: m.distance_km,
-          status: "notified",
+          response_status: "pending",
         })),
       )
     }

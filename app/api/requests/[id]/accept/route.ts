@@ -14,29 +14,29 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   try {
-    // 1. Update the request_matches status
-    const { error: matchError } = await supabase
-      .from("request_matches")
-      .update({ status: "accepted" })
+    // 1. Update the request_responses status
+    const { error: responseError } = await supabase
+      .from("request_responses")
+      .update({ response_status: "accepted" })
       .eq("request_id", requestId)
       .eq("donor_id", user.id)
 
-    if (matchError) throw new Error(`Failed to update request match: ${matchError.message}`)
+    if (responseError) throw new Error(`Failed to update request response: ${responseError.message}`)
 
-    // 2. Update the emergency_requests status
+    // 2. Update the blood_requests status to fulfilled
     const { data: requestData, error: requestError } = await supabase
-      .from("emergency_requests")
-      .update({ status: "matched" })
+      .from("blood_requests")
+      .update({ status: "fulfilled" })
       .eq("id", requestId)
       .select()
       .single()
 
-    if (requestError) throw new Error(`Failed to update emergency request: ${requestError.message}`)
+    if (requestError) throw new Error(`Failed to update blood request: ${requestError.message}`)
 
     // 3. Fetch donor's profile
     const { data: donorProfile, error: donorError } = await supabase
-      .from("profiles")
-      .select("name, phone")
+      .from("users")
+      .select("name, user_profiles(phone_number)")
       .eq("id", user.id)
       .single()
 
@@ -46,7 +46,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const { error: notificationError } = await supabase.from("notifications").insert({
       user_id: requestData.requester_id,
       title: "Your blood request has been accepted!",
-      message: `${donorProfile.name} has accepted your request. You can contact them at: ${donorProfile.phone}.`,
+      message: `${donorProfile.name} has accepted your request. You can contact them at: ${donorProfile.user_profiles.phone_number}.`,
     })
 
     if (notificationError) throw new Error(`Failed to create notification: ${notificationError.message}`)

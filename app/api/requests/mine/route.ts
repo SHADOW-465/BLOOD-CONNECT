@@ -12,18 +12,20 @@ export async function GET(req: Request) {
   }
 
   const { data: requests, error } = await supabase
-    .from("emergency_requests")
+    .from("blood_requests")
     .select(
       `
       *,
-      donations:donations(
+      request_responses:request_responses(
         id,
         donor_id,
-        profiles:donor_id(
+        users:donor_id(
           name,
-          blood_type,
-          rh,
-          avatar_url
+          user_profiles(
+            blood_type,
+            rh_factor,
+            profile_picture_url
+          )
         )
       )
     `
