@@ -14,7 +14,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const matchId = params.id
   const { status } = await req.json()
 
-  if (!["accepted", "declined"].includes(status)) {
+  if (status !== "accepted") {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 })
   }
 

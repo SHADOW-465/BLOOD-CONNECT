@@ -37,9 +37,9 @@ interface DonorProfile {
 export async function findMatchingDonors(request: EmergencyRequest, supabase: SupabaseClient) {
   console.log('Starting donor matching process for request:', request.id);
 
-  // 1. Fetch all available donor profiles from Supabase
+  // 1. Fetch all available donor profiles from the secure view
   const { data: profiles, error } = await supabase
-    .from('profiles')
+    .from('donor_profiles_for_matching')
     .select('id, name, blood_type, rh, last_donation_date, location_lat, location_lng, availability_status')
     .eq('availability_status', 'available');
 

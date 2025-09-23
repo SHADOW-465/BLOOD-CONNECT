@@ -6,7 +6,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
 import { User } from "@supabase/supabase-js"
-import { differenceInDays, formatDistanceToNow } from "date-fns"
+import { differenceInDays, format, formatDistanceToNow } from "date-fns"
 
 type RequestMatch = {
   id: string
@@ -131,30 +131,6 @@ export default function DashboardPage() {
     }
     getUserData()
   }, [supabase])
-
-  async function handleAvailabilityChange(isAvailable: boolean) {
-    const originalProfile = profile
-    const newStatus = isAvailable ? "available" : "unavailable"
-
-    // Optimistic update
-    setProfile((prev) => (prev ? { ...prev, availability_status: newStatus } : null))
-
-    try {
-      const response = await fetch("/api/profile/availability", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ availability_status: newStatus }),
-      })
-
-      if (!response.ok) {
-        // Revert on failure
-        setProfile(originalProfile)
-      }
-    } catch (error) {
-      console.error("Failed to update availability:", error)
-      setProfile(originalProfile)
-    }
-  }
 
   async function handleSendRequest() {
     if (!loc || !user) return
@@ -339,7 +315,7 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleMatchResponse(matchId: string, newStatus: "accepted" | "declined") {
+  async function handleMatchResponse(matchId: string, newStatus: "accepted") {
     // Optimistic update
     const originalRequests = myMatchedRequests
     setMyMatchedRequests((prev) =>
@@ -369,6 +345,24 @@ export default function DashboardPage() {
     <>
       <div className="min-h-screen bg-slate-50 p-6">
         <div className="mx-auto max-w-5xl grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {profile && !profile.location_lat && (
+            <NCard className="lg:col-span-3 bg-yellow-100/80">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-semibold text-yellow-800">Update Your Location</h2>
+                  <p className="text-sm text-yellow-700">
+                    Your profile is missing a location. Please update it to be matched with nearby requests.
+                  </p>
+                </div>
+                <NButton
+                  onClick={() => (window.location.href = "/blood-onboarding/profile")}
+                  className="min-w-56 h-12 bg-yellow-300 text-yellow-900"
+                >
+                  Update Profile
+                </NButton>
+              </div>
+            </NCard>
+          )}
           <NCard className="lg:col-span-3">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <div>
@@ -438,27 +432,6 @@ export default function DashboardPage() {
                 <div className="text-sm text-gray-600">No donation history</div>
               )}
             </div>
-          </NCard>
-
-          <NCard>
-            <div className="flex items-center gap-3">
-              <UserIcon className="w-5 h-5 text-[#e74c3c]" />
-              <h3 className="font-semibold">My Status</h3>
-            </div>
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">Accepting requests</span>
-              {profile && (
-                <NToggle
-                  checked={profile.availability_status === "available"}
-                  onChange={handleAvailabilityChange}
-                />
-              )}
-            </div>
-            <p className="mt-2 text-xs text-gray-500">
-              {profile?.availability_status === "available"
-                ? "You will receive alerts for new requests."
-                : "You are currently unavailable and won't be notified."}
-            </p>
           </NCard>
 
           {mySentRequest ? (
@@ -551,12 +524,6 @@ export default function DashboardPage() {
                           </div>
                           {r.status === "notified" ? (
                             <div className="flex justify-end gap-2">
-                              <NButton
-                                onClick={() => handleMatchResponse(r.id, "declined")}
-                                className="h-8 px-3 text-xs bg-gray-200 text-gray-700"
-                              >
-                                Decline
-                              </NButton>
                               <NButton
                                 onClick={() => handleMatchResponse(r.id, "accepted")}
                                 className="h-8 px-4 text-xs"
