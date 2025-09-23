@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { NButton, NCard, NModal, NField } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon } from "lucide-react"
+import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon, Share2, Check } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
 import { User } from "@supabase/supabase-js"
 import { differenceInDays, format, formatDistanceToNow } from "date-fns"
@@ -17,6 +17,10 @@ type RequestRow = {
   location_lng: number | null
   status: string
   created_at: string
+  name: string
+  age: number
+  hospital: string
+  contact: string
 }
 
 type Appointment = {
@@ -46,6 +50,10 @@ export default function DashboardPage() {
     rh: "+" as Rh,
     urgency: "high" as Urgency,
     units: 1,
+    name: "Jayasurya. J",
+    age: 26,
+    hospital: "Rajiv Gandhi government general hospital",
+    contact: "8015118403",
   })
 
   useEffect(() => {
@@ -112,6 +120,10 @@ export default function DashboardPage() {
           location_lat: loc.lat,
           location_lng: loc.lng,
           radius_km: 10,
+          name: sosForm.name,
+          age: sosForm.age,
+          hospital: sosForm.hospital,
+          contact: sosForm.contact,
         }),
       })
       if (!res.ok) throw new Error("Request failed")
@@ -236,28 +248,52 @@ export default function DashboardPage() {
             </div>
           </NCard>
 
-          <NCard className="lg:col-span-2">
+          <NCard className="lg:col-span-3">
             <div className="flex items-center gap-3">
               <Activity className="w-5 h-5 text-[#e74c3c]" />
               <h3 className="font-semibold">Nearby Requests</h3>
             </div>
-            <ul className="mt-4 space-y-3">
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               {requestsWithDistance.map((r) => (
-                <li key={r.id} className="flex items-center justify-between">
-                  <div className="text-sm">
-                    <div className="font-mono">
+                <div key={r.id} className="bg-white rounded-lg shadow p-4 flex flex-col">
+                  <div className="flex items-center justify-between">
+                    <div className="font-mono text-lg font-bold text-[#e74c3c]">
                       {r.blood_type}
                       {r.rh}
                     </div>
-                    <div className="text-xs text-gray-600">Urgency: {r.urgency}</div>
+                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                      <MapPin className="w-4 h-4" />
+                      {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                    <MapPin className="w-4 h-4" />
-                    {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
+                  <div className="mt-2 text-sm text-gray-600">
+                    <p>
+                      <strong>Patient:</strong> {r.name}, {r.age}
+                    </p>
+                    <p>
+                      <strong>Hospital:</strong> {r.hospital}
+                    </p>
+                    <p>
+                      <strong>Contact:</strong> {r.contact}
+                    </p>
+                    <p>
+                      <strong>Urgency:</strong> <span className="font-semibold text-red-500">{r.urgency}</span>
+                    </p>
                   </div>
-                </li>
+                  <div className="mt-4 flex-grow" />
+                  <div className="flex gap-2 mt-auto">
+                    <NButton className="w-full bg-green-500 text-white">
+                      <Check className="w-4 h-4 mr-2" />
+                      Accept
+                    </NButton>
+                    <NButton className="w-full bg-blue-500 text-white">
+                      <Share2 className="w-4 h-4 mr-2" />
+                      Share
+                    </NButton>
+                  </div>
+                </div>
               ))}
-            </ul>
+            </div>
           </NCard>
 
           <NCard>
@@ -311,6 +347,30 @@ export default function DashboardPage() {
             type="number"
             value={sosForm.units}
             onChange={(e) => setSosForm({ ...sosForm, units: parseInt(e.target.value, 10) || 1 })}
+          />
+          <NField
+            label="Name"
+            type="text"
+            value={sosForm.name}
+            onChange={(e) => setSosForm({ ...sosForm, name: e.target.value })}
+          />
+          <NField
+            label="Age"
+            type="number"
+            value={sosForm.age}
+            onChange={(e) => setSosForm({ ...sosForm, age: parseInt(e.target.value, 10) || 0 })}
+          />
+          <NField
+            label="Hospital"
+            type="text"
+            value={sosForm.hospital}
+            onChange={(e) => setSosForm({ ...sosForm, hospital: e.target.value })}
+          />
+          <NField
+            label="Contact"
+            type="text"
+            value={sosForm.contact}
+            onChange={(e) => setSosForm({ ...sosForm, contact: e.target.value })}
           />
         </div>
         <div className="mt-6 flex justify-end gap-3">
