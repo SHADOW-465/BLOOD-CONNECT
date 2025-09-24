@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase/server"
-import { isCompatible, kmDistance } from "@/lib/compatibility"
-import { Database } from "@/lib/supabase/types"
+import { isCompatible, kmDistance, findBestMatches, type DonorProfile } from "@/lib/compatibility"
 
 export async function GET(req: Request) {
   const supabase = getSupabaseServerClient()
@@ -9,9 +8,9 @@ export async function GET(req: Request) {
   const radius = Number(url.searchParams.get("radius_km") || 50)
 
   const { data: requests, error } = await supabase
-    .from("blood_requests")
+    .from("emergency_requests")
     .select("*")
-    .eq("status", "active")
+    .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(50)
 
@@ -25,85 +24,136 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-
-  const body: Partial<Database["public"]["Tables"]["blood_requests"]["Insert"]> = await req.json()
-
-  const {
-    blood_type,
-    rh_factor,
-    urgency,
-    latitude,
-    longitude,
-    units_needed = 1,
+  const body = await req.json()
+  const { 
+    blood_type, 
+    rh, 
+    urgency, 
+    location_lat, 
+    location_lng, 
+    units_needed = 1, 
+    radius_km = 10,
     patient_name,
-    hospital_name,
-    contact_phone,
-    notes,
-    required_by,
+    patient_age,
+    hospital,
+    contact
   } = body
 
-  if (!blood_type || !rh_factor || !urgency || !latitude || !longitude || !patient_name || !hospital_name || !contact_phone || !required_by) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
-  }
-
   const { data: inserted, error } = await supabase
-    .from("blood_requests")
+    .from("emergency_requests")
     .insert({
       requester_id: user.id,
       blood_type,
-      rh_factor,
+      rh,
       urgency,
-      latitude,
-      longitude,
+      location_lat,
+      location_lng,
       units_needed,
+      radius_km,
       patient_name,
-      hospital_name,
-      contact_phone,
-      notes,
-      required_by,
-      status: "active",
+      patient_age: patient_age ? parseInt(patient_age) : null,
+      hospital,
+      contact,
+      status: "open",
+      expires_at: new Date(Date.now() + 1000 * 60 * 60).toISOString(),
     })
     .select()
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  // Find matching donors
-  const { data: candidates } = await supabase.from("users").select(`
-      id,
-      availability_status,
-      user_profiles (
+  // Enhanced smart matching algorithm
+  if (inserted.location_lat && inserted.location_lng) {
+    // Get donor profiles with donation history
+    const { data: candidates } = await supabase
+      .from("profiles")
+      .select(`
+        id,
         blood_type,
-        rh_factor,
-        latitude,
-        longitude
-      )
-    `).eq("availability_status", "available")
+        rh,
+        availability_status,
+        location_lat,
+        location_lng,
+        last_donation_date
+      `)
+      .eq("availability_status", "available")
+      .not("blood_type", "is", null)
+      .not("rh", "is", null)
 
-  if (candidates && inserted.latitude && inserted.longitude) {
-    const matches = candidates
-      .filter((c) => {
-        const profile = Array.isArray(c.user_profiles) ? c.user_profiles[0] : c.user_profiles
-        return profile && profile.blood_type && profile.rh_factor && isCompatible(inserted.blood_type, inserted.rh_factor, profile.blood_type as any, profile.rh_factor as any)
-      })
-      .map((c) => {
-        const profile = Array.isArray(c.user_profiles) ? c.user_profiles[0] : c.user_profiles
-        const dist =
-          profile && profile.latitude && profile.longitude
-            ? kmDistance(inserted.latitude, inserted.longitude, profile.latitude, profile.longitude)
-            : 1e9
-        return { donor_id: c.id, distance_km: dist }
-      })
-      .filter((m) => m.distance_km <= (body.radius_km || 10)) // Use radius from request body or default to 10km
+    if (candidates) {
+      // Get donation counts for each donor
+      const donorIds = candidates.map(c => c.id)
+      const { data: donationCounts } = await supabase
+        .from("donations")
+        .select("donor_id")
+        .in("donor_id", donorIds)
 
-    if (matches.length) {
-      await supabase.from("request_responses").insert(
-        matches.map((m) => ({
-          request_id: inserted.id,
-          donor_id: m.donor_id,
-          response_status: "pending",
-        })),
+      // Calculate donation counts per donor
+      const donationCountMap = new Map<string, number>()
+      donationCounts?.forEach(donation => {
+        const count = donationCountMap.get(donation.donor_id) || 0
+        donationCountMap.set(donation.donor_id, count + 1)
+      })
+
+      // Get response rates from request_matches
+      const { data: responseHistory } = await supabase
+        .from("request_matches")
+        .select("donor_id, status")
+        .in("donor_id", donorIds)
+
+      // Calculate response rates
+      const responseRateMap = new Map<string, number>()
+      const responseCountMap = new Map<string, { total: number; accepted: number }>()
+      
+      responseHistory?.forEach(match => {
+        const current = responseCountMap.get(match.donor_id) || { total: 0, accepted: 0 }
+        current.total++
+        if (match.status === 'accepted') current.accepted++
+        responseCountMap.set(match.donor_id, current)
+      })
+
+      responseCountMap.forEach((counts, donorId) => {
+        responseRateMap.set(donorId, counts.accepted / counts.total)
+      })
+
+      // Enhance donor profiles with calculated data
+      const enhancedCandidates: DonorProfile[] = candidates.map(candidate => ({
+        id: candidate.id,
+        blood_type: candidate.blood_type as any,
+        rh: candidate.rh as any,
+        availability_status: candidate.availability_status as any,
+        location_lat: candidate.location_lat,
+        location_lng: candidate.location_lng,
+        last_donation_date: candidate.last_donation_date,
+        donation_count: donationCountMap.get(candidate.id) || 0,
+        response_rate: responseRateMap.get(candidate.id) || 0.5
+      }))
+
+      // Use smart matching algorithm
+      const matches = findBestMatches(
+        {
+          blood_type: inserted.blood_type as any,
+          rh: inserted.rh as any,
+          urgency: inserted.urgency as any,
+          location_lat: inserted.location_lat,
+          location_lng: inserted.location_lng,
+          radius_km: inserted.radius_km
+        },
+        enhancedCandidates,
+        10 // Max 10 matches
       )
+
+      if (matches.length) {
+        await supabase.from("request_matches").insert(
+          matches.map((match) => ({
+            request_id: inserted.id,
+            donor_id: match.donor_id,
+            distance_km: match.distance_km,
+            score: match.score,
+            status: "notified",
+          })),
+        )
+      }
     }
   }
 

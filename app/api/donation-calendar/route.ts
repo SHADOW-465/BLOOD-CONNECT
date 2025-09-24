@@ -12,11 +12,10 @@ export async function GET(req: Request) {
   }
 
   const { data, error } = await supabase
-    .from("notifications")
+    .from("donation_calendar")
     .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(50)
+    .eq("donor_id", user.id)
+    .order("scheduled_date", { ascending: true })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
@@ -36,16 +35,16 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json()
-  const { type, title, message, data } = body
+  const { scheduled_date, location, notes } = body
 
-  const { data: notification, error } = await supabase
-    .from("notifications")
+  const { data, error } = await supabase
+    .from("donation_calendar")
     .insert({
-      user_id: user.id,
-      type,
-      title,
-      message,
-      data
+      donor_id: user.id,
+      scheduled_date,
+      location,
+      notes,
+      status: 'scheduled'
     })
     .select()
     .single()
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  return NextResponse.json(notification, { status: 201 })
+  return NextResponse.json(data, { status: 201 })
 }
 
 export async function PUT(req: Request) {
@@ -68,13 +67,16 @@ export async function PUT(req: Request) {
   }
 
   const body = await req.json()
-  const { notification_id, read } = body
+  const { appointment_id, status, notes } = body
 
   const { data, error } = await supabase
-    .from("notifications")
-    .update({ read })
-    .eq("id", notification_id)
-    .eq("user_id", user.id)
+    .from("donation_calendar")
+    .update({ 
+      status,
+      notes: notes || null
+    })
+    .eq("id", appointment_id)
+    .eq("donor_id", user.id)
     .select()
     .single()
 
