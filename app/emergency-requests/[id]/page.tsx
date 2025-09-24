@@ -35,8 +35,15 @@ type RequestMatch = {
   } | null
 };
 
+const LoadingSpinner = () => (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p>Loading request details...</p>
+    </div>
+);
+
 export default function EmergencyRequestDetailPage({ params }: { params: { id: string } }) {
   const supabase = getSupabaseBrowserClient();
+  const [isClient, setIsClient] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [request, setRequest] = useState<EmergencyRequest | null>(null);
   const [matches, setMatches] = useState<RequestMatch[]>([]);
@@ -44,6 +51,10 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
   const [error, setError] = useState<string | null>(null);
   const [userMatch, setUserMatch] = useState<RequestMatch | null>(null);
   const [donorProfile, setDonorProfile] = useState<{ name: string, blood_type: string, rh: string } | null>(null);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const fetchRequestAndMatches = useCallback(async () => {
     setLoading(true);
@@ -57,7 +68,7 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
 
     if (requestError) {
       console.error('Error fetching request:', requestError);
-      setError('Could not load the emergency request. It might have been fulfilled or canceled.');
+      setError(`Could not load the emergency request: ${requestError.message}`);
       setRequest(null);
     } else {
       setRequest(requestData);
@@ -198,8 +209,12 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
     }
   }
 
-  if (loading && !request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><p>Loading request details...</p></div>;
-  if (error && !request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><NAlert type="error">{error}</NAlert></div>;
+  if (!isClient) {
+    return <LoadingSpinner />;
+  }
+
+  if (loading && !request) return <LoadingSpinner />;
+  if (error && !request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4"><NAlert type="error"><h2>Error</h2><p>{error}</p></NAlert></div>;
   if (!request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><NAlert type="info">Request not found.</NAlert></div>;
 
   const isRequester = user?.id === request.requester_id;
