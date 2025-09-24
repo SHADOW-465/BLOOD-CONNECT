@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from "react"
 import { NButton, NCard, NModal, NField, NStatCard, NBadge, NAlert, NList, NListItem, NProgress } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon, Clock, Users, TrendingUp } from "lucide-react"
+import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon, Clock, Users, TrendingUp, QrCode } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
 import { User } from "@supabase/supabase-js"
 import { differenceInDays, formatDistanceToNow } from "date-fns"
+import { toast } from "sonner"
+import QRScanner from "@/components/QRScanner"
+import RequestActionButtons from "@/components/RequestActionButtons"
 
 type RequestRow = {
   id: string
@@ -45,6 +48,9 @@ export default function DashboardPage() {
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [isSosModalOpen, setIsSosModalOpen] = useState(false)
+  const [showQRScanner, setShowQRScanner] = useState(false)
+  const [acceptingRequests, setAcceptingRequests] = useState<Set<string>>(new Set())
+  const [acceptedRequests, setAcceptedRequests] = useState<Set<string>>(new Set())
   const [sosForm, setSosForm] = useState({
     bloodType: "A" as BloodType,
     rh: "+" as Rh,
@@ -160,6 +166,130 @@ export default function DashboardPage() {
     setRequests(data)
   }
 
+  // Check which requests the user has already accepted
+  useEffect(() => {
+    if (!user) return
+    const checkAcceptedRequests = async () => {
+      const { data } = await supabase
+        .from("request_matches")
+        .select("request_id")
+        .eq("donor_id", user.id)
+        .eq("status", "accepted")
+      
+      if (data) {
+        setAcceptedRequests(new Set(data.map(m => m.request_id)))
+      }
+    }
+    checkAcceptedRequests()
+  }, [user, supabase])
+
+  const handleAcceptRequest = async (requestId: string) => {
+    if (!user) {
+      toast.error("Please login to help with requests")
+      return
+    }
+
+    setAcceptingRequests(prev => new Set(prev).add(requestId))
+    
+    try {
+      const response = await fetch(`/api/requests/${requestId}/accept`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        toast.success("Request accepted! Requester has been notified with your details.")
+        setAcceptedRequests(prev => new Set(prev).add(requestId))
+        await loadNearby() // Refresh the requests
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to accept request")
+      }
+    } catch (error) {
+      toast.error("Network error occurred")
+    } finally {
+      setAcceptingRequests(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(requestId)
+        return newSet
+      })
+    }
+  }
+
+  const handleShareRequest = async (request: any) => {
+    try {
+      // Get shareable data from API
+      const response = await fetch(`/api/requests/${request.id}/share`)
+      const shareData = await response.json()
+      
+      if (!response.ok) {
+        toast.error("Failed to generate share message")
+        return
+      }
+      
+      // Track the share action
+      await fetch(`/api/requests/${request.id}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: navigator.share ? 'native' : 'clipboard' })
+      })
+      
+      if (navigator.share) {
+        // Use native share API if available (mobile)
+        await navigator.share({
+          title: shareData.title,
+          text: shareData.message,
+          url: shareData.url
+        })
+        toast.success("Request shared successfully!")
+      } else {
+        // Fallback: Copy to clipboard
+        const fullMessage = `${shareData.message}\n${shareData.url}`
+        await navigator.clipboard.writeText(fullMessage)
+        toast.success("Share message copied to clipboard!")
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return // User cancelled the share dialog
+      }
+      toast.error("Failed to share request")
+    }
+  }
+
+  const handleQRScan = async (qrData: any) => {
+    try {
+      const response = await fetch('/api/donations/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          donation_id: qrData.donation_id,
+          token: qrData.token
+        })
+      })
+
+      const result = await response.json()
+      
+      if (response.ok) {
+        toast.success(`🎉 Donation confirmed! You helped save ${result.lives_saved} lives!`)
+        setShowQRScanner(false)
+        // Refresh impact data
+        if (user) {
+          const { data: donations } = await supabase.from("donations").select("id, donated_at").eq("donor_id", user.id)
+          if (donations) {
+            setImpact(prev => ({ 
+              ...prev,
+              donations: donations.length, 
+              lives: donations.length * 3, 
+            }))
+          }
+        }
+      } else {
+        toast.error(result.error || "Failed to confirm donation")
+      }
+    } catch (error) {
+      toast.error("Network error occurred")
+    }
+  }
+
   useEffect(() => {
     loadNearby()
     const channel = supabase
@@ -258,36 +388,46 @@ export default function DashboardPage() {
             {requestsWithDistance.length > 0 ? (
               <NList>
                 {requestsWithDistance.map((r) => (
-                  <NListItem key={r.id} className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-lg font-bold">
-                          {r.blood_type}{r.rh}
-                        </span>
-                        <NBadge variant={r.urgency === 'critical' ? 'error' : r.urgency === 'high' ? 'warning' : 'info'}>
-                          {r.urgency}
-                        </NBadge>
-                      </div>
-                      {r.patient_name && (
-                        <div className="text-sm text-gray-600">
-                          Patient: {r.patient_name} {r.patient_age && `(${r.patient_age} years)`}
+                  <NListItem key={r.id}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-lg font-bold">
+                            {r.blood_type}{r.rh}
+                          </span>
+                          <NBadge variant={r.urgency === 'critical' ? 'error' : r.urgency === 'high' ? 'warning' : 'info'}>
+                            {r.urgency}
+                          </NBadge>
                         </div>
-                      )}
-                      {r.hospital && (
-                        <div className="text-xs text-gray-500">
-                          Hospital: {r.hospital}
+                        {r.patient_name && (
+                          <div className="text-sm text-gray-600">
+                            Patient: {r.patient_name} {r.patient_age && `(${r.patient_age} years)`}
+                          </div>
+                        )}
+                        {r.hospital && (
+                          <div className="text-xs text-gray-500">
+                            Hospital: {r.hospital}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500 flex items-center gap-1 mb-1">
+                          <MapPin className="w-4 h-4" />
+                          {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
                         </div>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-gray-500 flex items-center gap-1 mb-1">
-                        <MapPin className="w-4 h-4" />
-                        {r?.dist ? `${r.dist.toFixed(1)} km` : "—"}
-                      </div>
-                      <div className="text-xs text-gray-400">
-                        {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+                        <div className="text-xs text-gray-400">
+                          {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+                        </div>
                       </div>
                     </div>
+                    <RequestActionButtons
+                      request={r}
+                      user={user}
+                      onAccept={handleAcceptRequest}
+                      onShare={handleShareRequest}
+                      acceptedRequests={acceptedRequests}
+                      acceptingRequests={acceptingRequests}
+                    />
                   </NListItem>
                 ))}
               </NList>
@@ -308,6 +448,10 @@ export default function DashboardPage() {
               <NButton onClick={() => location.assign("/schedule")}>Schedule Donation</NButton>
               <NButton onClick={() => location.assign("/blood-onboarding/availability")}>Update Availability</NButton>
               <NButton onClick={() => location.assign("/blood-onboarding/profile")}>View Profile</NButton>
+              <NButton onClick={() => setShowQRScanner(true)} className="bg-green-50 text-green-700">
+                <QrCode className="w-4 h-4 mr-2" />
+                Confirm Donation
+              </NButton>
             </div>
           </NCard>
         </div>
@@ -394,6 +538,16 @@ export default function DashboardPage() {
           </NButton>
         </div>
       </NModal>
+
+      {/* QR Scanner Modal */}
+      {showQRScanner && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <QRScanner 
+            onScan={handleQRScan}
+            onClose={() => setShowQRScanner(false)}
+          />
+        </div>
+      )}
     </>
   )
 }
