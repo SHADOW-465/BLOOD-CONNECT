@@ -1,81 +1,123 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { NCard } from "@/components/nui"
-import { formatDistanceToNow } from "date-fns"
+import { useState, useEffect, useCallback } from 'react';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { User } from '@supabase/supabase-js';
+import { NCard, NList, NListItem, NBadge } from '@/components/nui';
+import { Bell, Mail } from 'lucide-react';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 
 type Notification = {
-  id: string
-  title: string
-  message: string
-  created_at: string
-  is_read: boolean
-}
+    id: string;
+    user_id: string;
+    type: 'emergency_request' | 'appointment_reminder' | 'donation_reminder' | 'system_update';
+    title: string;
+    message: string;
+    read: boolean;
+    created_at: string;
+};
 
 export default function NotificationsPage() {
-  const supabase = getSupabaseBrowserClient()
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [loading, setLoading] = useState(true)
+    const supabase = getSupabaseBrowserClient();
+    const [user, setUser] = useState<User | null>(null);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .order("created_at", { ascending: false })
-      if (error) {
-        console.error("Error fetching notifications:", error)
-      } else {
-        setNotifications(data)
-      }
-      setLoading(false)
-    }
+    const fetchNotifications = useCallback(async (userId: string) => {
+        setLoading(true);
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
 
-    fetchNotifications()
-  }, [supabase])
+        if (error) {
+            console.error('Error fetching notifications:', error);
+        } else {
+            setNotifications(data);
+        }
+        setLoading(false);
+    }, [supabase]);
 
-  const handleMarkAsRead = async (id: string) => {
-    const { error } = await supabase.from("notifications").update({ is_read: true }).eq("id", id)
-    if (error) {
-      console.error("Error marking notification as read:", error)
-    } else {
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)))
-    }
-  }
+    useEffect(() => {
+        const init = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                setUser(session.user);
+                await fetchNotifications(session.user.id);
+            } else {
+                setLoading(false);
+            }
+        };
+        init();
+    }, [supabase, fetchNotifications]);
 
-  return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Notifications</h1>
-      {loading ? (
-        <p>Loading...</p>
-      ) : notifications.length === 0 ? (
-        <p>You have no notifications.</p>
-      ) : (
-        <div className="space-y-4">
-          {notifications.map((notification) => (
-            <NCard key={notification.id} className={`p-4 ${notification.is_read ? "bg-gray-100" : "bg-white"}`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="font-semibold">{notification.title}</h2>
-                  <p className="text-sm text-gray-600">{notification.message}</p>
-                  <p className="text-xs text-gray-400 mt-2">
-                    {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
-                  </p>
+    const handleNotificationClick = async (notification: Notification) => {
+        if (notification.read) return;
+
+        const { error } = await supabase
+            .from('notifications')
+            .update({ read: true })
+            .eq('id', notification.id);
+
+        if (error) {
+            console.error('Error marking notification as read:', error);
+        } else {
+            // Optimistically update the UI
+            setNotifications(prev =>
+                prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
+            );
+        }
+    };
+
+    const unreadCount = notifications.filter(n => !n.read).length;
+
+    return (
+        <div className="min-h-screen bg-slate-50 p-6">
+            <div className="mx-auto max-w-3xl">
+                <div className="flex justify-between items-center mb-6">
+                    <h1 className="text-3xl font-bold text-[#e74c3c]">Notifications</h1>
+                    {unreadCount > 0 && <NBadge variant="error">{unreadCount} Unread</NBadge>}
                 </div>
-                {!notification.is_read && (
-                  <button
-                    onClick={() => handleMarkAsRead(notification.id)}
-                    className="text-sm text-blue-500 hover:underline"
-                  >
-                    Mark as read
-                  </button>
-                )}
-              </div>
-            </NCard>
-          ))}
+
+                <NCard>
+                    {loading ? <p>Loading notifications...</p> : (
+                        <NList>
+                            {notifications.length > 0 ? notifications.map(notification => (
+                                <NListItem
+                                    key={notification.id}
+                                    onClick={() => handleNotificationClick(notification)}
+                                    className={`transition-all ${!notification.read ? 'bg-red-50' : ''}`}
+                                >
+                                    <div className="flex items-start gap-4">
+                                        <div className={`mt-1 p-2 rounded-full ${!notification.read ? 'bg-red-100' : 'bg-gray-100'}`}>
+                                            <Bell className={`w-5 h-5 ${!notification.read ? 'text-red-500' : 'text-gray-500'}`} />
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex justify-between items-center">
+                                                <p className={`font-semibold ${!notification.read ? 'text-gray-800' : 'text-gray-600'}`}>{notification.title}</p>
+                                                <p className="text-xs text-gray-400">
+                                                    {formatDistanceToNow(parseISO(notification.created_at), { addSuffix: true })}
+                                                </p>
+                                            </div>
+                                            <p className={`text-sm mt-1 ${!notification.read ? 'text-gray-700' : 'text-gray-500'}`}>{notification.message}</p>
+                                        </div>
+                                        <div className="mt-1">
+                                            {!notification.read && <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>}
+                                        </div>
+                                    </div>
+                                </NListItem>
+                            )) : (
+                                <div className="text-center py-8">
+                                    <Mail className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                                    <h3 className="text-lg font-semibold">All Caught Up</h3>
+                                    <p className="text-sm text-gray-500">You have no new notifications.</p>
+                                </div>
+                            )}
+                        </NList>
+                    )}
+                </NCard>
+            </div>
         </div>
-      )}
-    </div>
-  )
+    );
 }
