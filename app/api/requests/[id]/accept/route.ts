@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase/server"
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   const supabase = getSupabaseServerClient()
-  const { id: requestId } = params
-
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -13,46 +14,90 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  try {
-    // 1. Update the request_responses status
-    const { error: responseError } = await supabase
-      .from("request_responses")
-      .update({ response_status: "accepted" })
-      .eq("request_id", requestId)
-      .eq("donor_id", user.id)
+  const requestId = params.id;
 
-    if (responseError) throw new Error(`Failed to update request response: ${responseError.message}`)
+  // 1. Check if the user is the requester
+  const { data: request, error: requestError } = await supabase
+    .from("emergency_requests")
+    .select("requester_id")
+    .eq("id", requestId)
+    .single();
 
-    // 2. Update the blood_requests status to fulfilled
-    const { data: requestData, error: requestError } = await supabase
-      .from("blood_requests")
-      .update({ status: "fulfilled" })
-      .eq("id", requestId)
-      .select()
-      .single()
-
-    if (requestError) throw new Error(`Failed to update blood request: ${requestError.message}`)
-
-    // 3. Fetch donor's profile
-    const { data: donorProfile, error: donorError } = await supabase
-      .from("users")
-      .select("name, user_profiles(phone_number)")
-      .eq("id", user.id)
-      .single()
-
-    if (donorError || !donorProfile) throw new Error("Failed to fetch donor profile.")
-
-    // 4. Create a notification for the requester
-    const { error: notificationError } = await supabase.from("notifications").insert({
-      user_id: requestData.requester_id,
-      title: "Your blood request has been accepted!",
-      message: `${donorProfile.name} has accepted your request. You can contact them at: ${donorProfile.user_profiles.phone_number}.`,
-    })
-
-    if (notificationError) throw new Error(`Failed to create notification: ${notificationError.message}`)
-
-    return NextResponse.json({ message: "Request accepted successfully." }, { status: 200 })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  if (requestError || !request) {
+    return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
+
+  if (request.requester_id === user.id) {
+    return NextResponse.json({ error: "You cannot accept your own request" }, { status: 400 });
+  }
+
+  // 2. Check if the user has already responded to this request
+  const { data: existingMatch, error: existingMatchError } = await supabase
+    .from("request_matches")
+    .select("id")
+    .eq("request_id", requestId)
+    .eq("donor_id", user.id)
+    .maybeSingle();
+
+  if (existingMatchError) {
+    return NextResponse.json({ error: "Database error checking for existing match" }, { status: 500 });
+  }
+
+  if (existingMatch) {
+    return NextResponse.json({ error: "You have already responded to this request" }, { status: 409 }); // 409 Conflict
+  }
+
+  // 3. Create the new match
+  const { data: newMatch, error: matchError } = await supabase
+    .from("request_matches")
+    .insert({
+      request_id: requestId,
+      donor_id: user.id,
+      status: 'accepted',
+    })
+    .select()
+    .single();
+
+  if (matchError) {
+    return NextResponse.json({ error: "Failed to create match" }, { status: 500 });
+  }
+
+  // 4. Fetch donor profile for notification
+  const { data: donorProfile, error: profileError } = await supabase
+    .from("profiles")
+    .select("name, blood_type, rh")
+    .eq("id", user.id)
+    .single();
+
+  if (profileError || !donorProfile) {
+    // This should ideally not happen if the user has a profile, but good to handle
+    return NextResponse.json({ error: "Could not find donor profile" }, { status: 404 });
+  }
+
+  // 5. Send notification
+  const { error: notificationError } = await supabase
+    .from("notifications")
+    .insert({
+      user_id: request.requester_id,
+      type: "emergency_request",
+      title: "Donor Accepted!",
+      message: `${donorProfile.name} (${donorProfile.blood_type}${donorProfile.rh}) has accepted your request.`,
+      data: {
+        request_id: requestId,
+        donor_id: user.id
+      }
+    });
+
+  if (notificationError) {
+    // Log the error but don't fail the whole request, as the main action (accepting) succeeded
+    console.error("Failed to send notification:", notificationError);
+  }
+
+  // 6. Update request status
+   await supabase
+      .from("emergency_requests")
+      .update({ status: 'matched' })
+      .eq("id", requestId)
+
+  return NextResponse.json({ success: true, match: newMatch });
 }

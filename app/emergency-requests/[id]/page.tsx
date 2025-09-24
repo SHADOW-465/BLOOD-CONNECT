@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { User } from '@supabase/supabase-js';
 import { NCard, NButton, NBadge, NAlert, NList, NListItem } from '@/components/nui';
-import { MapPin, Clock, Phone, User as UserIcon, Heart, CheckCircle, XCircle, Navigation } from 'lucide-react';
+import { MapPin, Clock, Phone, User as UserIcon, Heart, CheckCircle, XCircle, Navigation, Share2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 type EmergencyRequest = {
@@ -43,12 +43,12 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userMatch, setUserMatch] = useState<RequestMatch | null>(null);
+  const [donorProfile, setDonorProfile] = useState<{ name: string, blood_type: string, rh: string } | null>(null);
 
   const fetchRequestAndMatches = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    // Fetch the emergency request details
     const { data: requestData, error: requestError } = await supabase
       .from('emergency_requests')
       .select('*')
@@ -63,7 +63,6 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
       setRequest(requestData);
     }
 
-    // Fetch the associated matches
     const { data: matchesData, error: matchesError } = await supabase
         .from('request_matches')
         .select(`
@@ -88,6 +87,13 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
             setUser(session.user);
+            const { data: profileData, error } = await supabase
+                .from('profiles')
+                .select('name, blood_type, rh')
+                .eq('id', session.user.id)
+                .single();
+            if (error) console.error("Error fetching donor profile:", error);
+            else setDonorProfile(profileData);
         }
     }
     initUser();
@@ -109,24 +115,69 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
     if (user && matches.length > 0) {
         const currentUserMatch = matches.find(m => m.donor_id === user.id) || null;
         setUserMatch(currentUserMatch);
+    } else {
+        setUserMatch(null);
     }
   }, [user, matches]);
 
-
-  const handleResponse = async (status: 'accepted' | 'declined') => {
-    if (!userMatch) return;
-    setLoading(true);
-    const { error } = await supabase
-      .from('request_matches')
-      .update({ status: status, response_time_seconds: Math.floor(Date.now() / 1000) })
-      .eq('id', userMatch.id);
-
-    if (error) {
-      console.error(`Error ${status} request:`, error);
-      setError(`Failed to ${status} the request.`);
+  const handleShare = async () => {
+    if (!request) return;
+    const shareUrl = `${window.location.origin}/emergency-requests/${request.id}`;
+    const shareMessage = `URGENT: A patient needs ${request.blood_type}${request.rh} blood at ${request.hospital || 'a nearby hospital'}. Can you help? #BloodConnect`;
+    const shareData = {
+        title: 'Urgent Blood Request',
+        text: shareMessage,
+        url: shareUrl,
+    };
+    try {
+        if (navigator.share) {
+            await navigator.share(shareData);
+        } else {
+            await navigator.clipboard.writeText(`${shareMessage}\\n${shareUrl}`);
+            alert('Request details copied to clipboard!');
+        }
+    } catch (error) {
+        console.error('Error sharing:', error);
+        alert('Could not share the request.');
     }
-    setLoading(false);
   };
+
+  const handleAcceptRequest = async () => {
+    if (!request || !user) {
+        setError("You must be logged in to accept requests.");
+        return;
+    }
+    if (user.id === request.requester_id) {
+        setError("You cannot accept your own request.");
+        return;
+    }
+    if (userMatch) {
+        setError("You have already responded to this request.");
+        return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+        const response = await fetch(`/api/requests/${request.id}/accept`, {
+            method: 'POST',
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to accept the request.');
+        }
+
+        await fetchRequestAndMatches();
+    } catch (e: any) {
+        console.error('Error accepting request:', e);
+        setError(e.message);
+    } finally {
+        setLoading(false);
+    }
+  }
 
   const getUrgencyColor = (urgency: string) => {
     switch (urgency) {
@@ -148,7 +199,7 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
   }
 
   if (loading && !request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><p>Loading request details...</p></div>;
-  if (error) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><NAlert type="error">{error}</NAlert></div>;
+  if (error && !request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><NAlert type="error">{error}</NAlert></div>;
   if (!request) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><NAlert type="info">Request not found.</NAlert></div>;
 
   const isRequester = user?.id === request.requester_id;
@@ -186,30 +237,31 @@ export default function EmergencyRequestDetailPage({ params }: { params: { id: s
                         <p className="flex items-center gap-2 mb-2"><MapPin className="w-4 h-4 text-gray-500"/><strong>Location:</strong> Near provided coordinates</p>
                     </div>
                 </div>
-                 {request.location_lat && request.location_lng && (
-                    <div className="mt-4">
+
+                <div className="mt-6 flex flex-wrap gap-4">
+                    {request.location_lat && request.location_lng && (
                         <NButton onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${request.location_lat},${request.location_lng}`, '_blank')}>
                             <Navigation className="w-4 h-4" />
                             Open in Maps
                         </NButton>
-                    </div>
-                )}
+                    )}
+                    <NButton onClick={handleShare} className="!bg-blue-500 hover:!bg-blue-600 !text-white">
+                        <Share2 className="w-4 h-4" />
+                        Share Request
+                    </NButton>
+                    {!isRequester && !userMatch && (
+                         <NButton onClick={handleAcceptRequest} disabled={loading} className="!bg-green-500 hover:!bg-green-600 !text-white">
+                            <CheckCircle className="w-5 h-5"/> Accept Request
+                        </NButton>
+                    )}
+                     {userMatch && (
+                        <NAlert type={getStatusColor(userMatch.status) as any} className="w-full">
+                            You have already responded to this request: <strong>{userMatch.status}</strong>
+                        </NAlert>
+                    )}
+                </div>
+                {error && <NAlert type="error" className="mt-4">{error}</NAlert>}
             </NCard>
-
-            {userMatch && userMatch.status === 'notified' && (
-                <NCard className="mt-6">
-                    <h3 className="font-semibold text-lg mb-4">Respond to Request</h3>
-                    <p className="text-sm text-gray-600 mb-4">You have been matched for this request. Please respond as soon as possible.</p>
-                    <div className="flex gap-4">
-                        <NButton onClick={() => handleResponse('accepted')} disabled={loading} className="flex-1 bg-green-500 hover:bg-green-600 text-white">
-                            <CheckCircle className="w-5 h-5"/> Accept
-                        </NButton>
-                        <NButton onClick={() => handleResponse('declined')} disabled={loading} className="flex-1 bg-red-500 hover:bg-red-600 text-white">
-                            <XCircle className="w-5 h-5"/> Decline
-                        </NButton>
-                    </div>
-                </NCard>
-            )}
         </div>
 
         <div className="lg:col-span-1">

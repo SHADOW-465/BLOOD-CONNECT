@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { NButton, NCard, NModal, NField, NStatCard, NBadge, NAlert, NList, NListItem, NProgress } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon, Clock, Users, TrendingUp } from "lucide-react"
@@ -259,11 +258,10 @@ export default function DashboardPage() {
             {requestsWithDistance.length > 0 ? (
               <NList>
                 {requestsWithDistance.map((r) => (
-                  <Link href={`/emergency-requests/${r.id}`} key={r.id}>
-                    <NListItem className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-lg font-bold">
+                  <NListItem key={r.id} className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-lg font-bold">
                           {r.blood_type}{r.rh}
                         </span>
                         <NBadge variant={r.urgency === 'critical' ? 'error' : r.urgency === 'high' ? 'warning' : 'info'}>
@@ -290,8 +288,7 @@ export default function DashboardPage() {
                         {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
                       </div>
                     </div>
-                    </NListItem>
-                  </Link>
+                  </NListItem>
                 ))}
               </NList>
             ) : (
@@ -309,8 +306,8 @@ export default function DashboardPage() {
             <h3 className="font-semibold">Quick Actions</h3>
             <div className="mt-4 grid grid-cols-1 gap-3">
               <NButton onClick={() => location.assign("/schedule")}>Schedule Donation</NButton>
-              <NButton onClick={() => location.assign("/profile")}>Update Availability</NButton>
-              <NButton onClick={() => location.assign("/profile")}>View Profile</NButton>
+              <NButton onClick={() => location.assign("/blood-onboarding/availability")}>Update Availability</NButton>
+              <NButton onClick={() => location.assign("/blood-onboarding/profile")}>View Profile</NButton>
             </div>
           </NCard>
         </div>
