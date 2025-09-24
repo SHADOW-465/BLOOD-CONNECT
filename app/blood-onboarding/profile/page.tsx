@@ -3,10 +3,9 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { Droplet, LocateFixed, ArrowLeft, ArrowRight } from "lucide-react"
+import { Droplet, MapPin, ArrowLeft, ArrowRight } from "lucide-react"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { User } from "@supabase/supabase-js"
-import { NButton } from "@/components/ui/NButton"
 
 type BloodType = "A" | "B" | "AB" | "O"
 type Rh = "+" | "-"
@@ -19,9 +18,8 @@ export default function BloodProfilePage() {
 
   const [bloodType, setBloodType] = useState<BloodType | "">("")
   const [rh, setRh] = useState<Rh | "">("")
-  const [latitude, setLatitude] = useState<number | null>(null)
-  const [longitude, setLongitude] = useState<number | null>(null)
-  const [locationStatus, setLocationStatus] = useState("idle")
+  const [city, setCity] = useState<string>("") // Note: city is not in db schema, we'll need to add it or use lat/lng
+  const [radiusKm, setRadiusKm] = useState<5 | 10 | 25 | 50>(10)
 
   useEffect(() => {
     const getUser = async () => {
@@ -34,13 +32,13 @@ export default function BloodProfilePage() {
       }
       setUser(session.user)
 
-      const { data: profile } = await supabase.from("user_profiles").select("*").eq("user_id", session.user.id).single()
+      const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
       if (profile) {
         setBloodType(profile.blood_type || "")
-        setRh(profile.rh_factor || "")
-        setLatitude(profile.latitude)
-        setLongitude(profile.longitude)
+        setRh(profile.rh || "")
+        setRadiusKm(profile.radius_km || 10)
+        // setCity(profile.city || ''); // Add city to profile table if needed
       }
       setLoaded(true)
     }
@@ -49,36 +47,19 @@ export default function BloodProfilePage() {
 
   const canContinue = bloodType && rh
 
-  const handleSetLocation = () => {
-    setLocationStatus("loading")
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLatitude(position.coords.latitude)
-        setLongitude(position.coords.longitude)
-        setLocationStatus("success")
-      },
-      (error) => {
-        console.error("Geolocation error:", error)
-        setLocationStatus("error")
-        alert("Could not get your location. Please check your browser permissions.")
-      },
-    )
-  }
-
   const saveAndNext = async () => {
     if (!user) return
 
-    const { error: profileError } = await supabase.from("user_profiles").upsert({
-      user_id: user.id,
+    const { error } = await supabase.from("profiles").upsert({
+      id: user.id,
       blood_type: bloodType,
-      rh_factor: rh,
-      latitude: latitude,
-      longitude: longitude,
+      rh: rh,
+      radius_km: radiusKm,
+      updated_at: new Date().toISOString(),
     })
 
-    if (profileError) {
-      console.error("Error updating profile", profileError)
-      alert("Error saving profile.")
+    if (error) {
+      console.error("Error updating profile", error)
       return
     }
 
@@ -94,6 +75,7 @@ export default function BloodProfilePage() {
   }
 
   const bloodTypes: BloodType[] = ["A", "B", "AB", "O"]
+  const radii: Array<5 | 10 | 25 | 50> = [5, 10, 25, 50]
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -118,13 +100,20 @@ export default function BloodProfilePage() {
             {bloodTypes.map((t, i) => {
               const selected = bloodType === t
               return (
-                <NButton
+                <motion.button
                   key={t}
-                  variant={selected ? "default" : "secondary"}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
                   onClick={() => setBloodType(t)}
+                  className={`px-4 py-3 bg-[#f0f3fa] rounded-2xl text-sm font-mono transition-all duration-200 ${
+                    selected
+                      ? "shadow-[inset_6px_6px_12px_#d1d9e6,inset_-6px_-6px_12px_#ffffff] ring-1 ring-[#ff149380] text-[#ff1493]"
+                      : "shadow-[6px_6px_12px_#d1d9e6,-6px_-6px_12px_#ffffff] text-gray-700"
+                  }`}
                 >
                   {t}
-                </NButton>
+                </motion.button>
               )
             })}
           </div>
@@ -137,47 +126,72 @@ export default function BloodProfilePage() {
             {(["+", "-"] as Rh[]).map((sign, i) => {
               const selected = rh === sign
               return (
-                <NButton
+                <motion.button
                   key={sign}
-                  variant={selected ? "default" : "secondary"}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
                   onClick={() => setRh(sign)}
+                  className={`px-4 py-3 bg-[#f0f3fa] rounded-2xl text-sm font-mono transition-all duration-200 ${
+                    selected
+                      ? "shadow-[inset_6px_6px_12px_#d1d9e6,inset_-6px_-6px_12px_#ffffff] ring-1 ring-[#ff149380] text-[#ff1493]"
+                      : "shadow-[6px_6px_12px_#d1d9e6,-6px_-6px_12px_#ffffff] text-gray-700"
+                  }`}
                 >
                   {sign}
-                </NButton>
+                </motion.button>
               )
             })}
           </div>
         </div>
 
-        {/* Location */}
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-700 mb-3 font-mono text-center">Your Location</h2>
-          <div className="p-4 bg-[#e6eaf1] rounded-2xl text-center">
-            {latitude && longitude ? (
-              <div>
-                <p className="font-mono text-sm text-green-700">Location set!</p>
-                <p className="font-mono text-xs text-gray-500">
-                  Lat: {latitude.toFixed(4)}, Lng: {longitude.toFixed(4)}
-                </p>
-              </div>
-            ) : (
-              <p className="font-mono text-sm text-gray-500">Your location is not set.</p>
-            )}
-            <NButton onClick={handleSetLocation} variant="secondary" className="mt-3">
-              <LocateFixed className="w-4 h-4 mr-2" />
-              {locationStatus === "loading" ? "Getting..." : "Use My Current Location"}
-            </NButton>
+        {/* Location + radius */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-gray-700 mb-3 font-mono text-center">Notification Radius</h2>
+          <div className="grid grid-cols-4 gap-3">
+            {radii.map((r, i) => {
+              const selected = radiusKm === r
+              return (
+                <motion.button
+                  key={r}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  onClick={() => setRadiusKm(r)}
+                  className={`flex-1 px-4 py-3 bg-[#f0f3fa] rounded-2xl text-sm font-mono transition-all duration-200 ${
+                    selected
+                      ? "shadow-[inset_6px_6px_12px_#d1d9e6,inset_-6px_-6px_12px_#ffffff] ring-1 ring-[#ff149380] text-[#ff1493]"
+                      : "shadow-[6px_6px_12px_#d1d9e6,-6px_-6px_12px_#ffffff] text-gray-700"
+                  }`}
+                >
+                  {r} km
+                </motion.button>
+              )
+            })}
           </div>
         </div>
 
         <div className="flex items-center justify-between">
-          <NButton onClick={() => router.push("/blood-onboarding/eligibility")} variant="secondary">
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back
-          </NButton>
+          <motion.button
+            onClick={() => router.push("/blood-onboarding/eligibility")}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-6 py-3 bg-[#f0f3fa] rounded-2xl font-semibold shadow-[8px_8px_16px_#d1d9e6,-8px_-8px_16px_#ffffff] hover:shadow-[6px_6px_12px_#d1d9e6,-6px_-6px_12px_#ffffff] active:shadow-[inset_4px_4px_8px_#d1d9e6,inset_-4px_-4px_8px_#ffffff] transition-all duration-200 flex items-center gap-2 font-mono text-gray-600"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </motion.button>
 
-          <NButton onClick={saveAndNext} disabled={!canContinue}>
-            Continue <ArrowRight className="w-4 h-4 ml-2" />
-          </NButton>
+          <motion.button
+            onClick={saveAndNext}
+            disabled={!canContinue}
+            whileHover={canContinue ? { scale: 1.02 } : {}}
+            whileTap={canContinue ? { scale: 0.98 } : {}}
+            className={`px-6 py-3 bg-[#f0f3fa] rounded-2xl font-semibold shadow-[8px_8px_16px_#d1d9e6,-8px_-8px_16px_#ffffff] hover:shadow-[6px_6px_12px_#d1d9e6,-6px_-6px_12px_#ffffff] active:shadow-[inset_4px_4px_8px_#d1d9e6,inset_-4px_-4px_8px_#ffffff] transition-all duration-200 flex items-center gap-2 font-mono ${
+              canContinue ? "text-[#ff1493]" : "text-gray-400 opacity-50 cursor-not-allowed"
+            }`}
+          >
+            Continue <ArrowRight className="w-4 h-4" />
+          </motion.button>
         </div>
       </motion.div>
     </div>

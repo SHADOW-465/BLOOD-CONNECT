@@ -29,19 +29,16 @@ export default function AvailabilityPage() {
       }
       setUser(session.user)
 
-      const { data: userData } = await supabase.from("users").select("*").eq("id", session.user.id).single()
-      const { data: profileData } = await supabase.from("user_profiles").select("*").eq("user_id", session.user.id).single()
+      const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
-      if (userData) {
-        setAvailable(userData.availability_status === "available")
-      }
-
-      if (profileData) {
-        const notes = JSON.parse(profileData.medical_conditions || "{}")
+      if (profile) {
+        setAvailable(profile.availability_status === "available")
+        const notes = JSON.parse(profile.medical_notes || "{}")
         setConsentShareContact(notes.consentShareContact ?? true)
         setNotifications(notes.notifications ?? true)
-        if (profileData.last_donation_date) {
-          const next = new Date(profileData.last_donation_date)
+        // This should be calculated based on last donation date from profile
+        if (profile.last_donation_date) {
+          const next = new Date(profile.last_donation_date)
           next.setDate(next.getDate() + 56)
           setNextEligibleDate(next.toISOString())
         }
@@ -54,21 +51,20 @@ export default function AvailabilityPage() {
   const saveAndFinish = async () => {
     if (!user) return
 
-    const { data: profile } = await supabase.from("user_profiles").select("medical_conditions").eq("user_id", user.id).single()
-    const notes = JSON.parse(profile?.medical_conditions || "{}")
+    const { data: profile } = await supabase.from("profiles").select("medical_notes").eq("id", user.id).single()
+    const notes = JSON.parse(profile?.medical_notes || "{}")
     notes.consentShareContact = consentShareContact
     notes.notifications = notifications
 
-    const { error: userError } = await supabase.from("users").update({
+    const { error } = await supabase.from("profiles").upsert({
+      id: user.id,
       availability_status: available ? "available" : "unavailable",
-    }).eq("id", user.id)
+      medical_notes: JSON.stringify(notes),
+      updated_at: new Date().toISOString(),
+    })
 
-    const { error: profileError } = await supabase.from("user_profiles").update({
-      medical_conditions: JSON.stringify(notes),
-    }).eq("user_id", user.id)
-
-    if (userError || profileError) {
-      console.error("Error updating profile", userError || profileError)
+    if (error) {
+      console.error("Error updating profile", error)
       return
     }
     router.push("/dashboard")
