@@ -52,7 +52,7 @@ export default function ProfilePage() {
   const [calendar, setCalendar] = useState<DonationCalendar[]>([])
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isMedicalModalOpen, setIsMedicalModalOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [editForm, setEditForm] = useState({
     name: "",
     phone: "",
@@ -74,14 +74,20 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const getUserData = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (session) {
-        setUser(session.user)
-        await loadProfile(session.user.id)
-        await loadMedicalRecords(session.user.id)
-        await loadCalendar(session.user.id)
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (session) {
+          setUser(session.user)
+          await loadProfile(session.user.id)
+          await loadMedicalRecords(session.user.id)
+          await loadCalendar(session.user.id)
+        }
+      } catch (error) {
+        console.error("Error getting user data:", error)
+      } finally {
+        setLoading(false)
       }
     }
     getUserData()
@@ -93,6 +99,11 @@ export default function ProfilePage() {
       .select("*")
       .eq("id", userId)
       .single()
+
+    if (error && error.code !== 'PGRST116') {
+        console.error("Error loading profile:", error)
+        return
+    }
 
     if (data) {
       setProfile(data)
@@ -106,7 +117,21 @@ export default function ProfilePage() {
         availability_reason: data.availability_reason || "",
         medical_notes: data.medical_notes || ""
       })
+    } else {
+        await createProfile(userId)
     }
+  }
+
+  const createProfile = async (userId: string) => {
+      const { error } = await supabase
+        .from("profiles")
+        .insert({ id: userId, name: "New User" })
+
+      if (error) {
+        console.error("Error creating profile:", error)
+      } else {
+        await loadProfile(userId)
+      }
   }
 
   const loadMedicalRecords = async (userId: string) => {
@@ -135,7 +160,7 @@ export default function ProfilePage() {
 
   const handleUpdateProfile = async () => {
     if (!user) return
-    
+
     setLoading(true)
     try {
       const { error } = await supabase
@@ -166,7 +191,7 @@ export default function ProfilePage() {
 
   const handleAddMedicalRecord = async () => {
     if (!user) return
-    
+
     setLoading(true)
     try {
       const { error } = await supabase
@@ -221,12 +246,23 @@ export default function ProfilePage() {
     }
   }
 
-  if (!profile) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#e74c3c] mx-auto mb-4"></div>
           <p className="text-gray-600">Loading profile...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+            <p className="text-lg text-gray-700">Unable to load profile.</p>
+            <p className="text-sm text-gray-500">There might be an issue with your account or the network. Please try again later.</p>
         </div>
       </div>
     )
@@ -264,19 +300,19 @@ export default function ProfilePage() {
                 Quick Actions
               </h3>
               <div className="space-y-3">
-                <NButton 
+                <NButton
                   onClick={() => setIsEditModalOpen(true)}
                   className="w-full"
                 >
                   Edit Profile
                 </NButton>
-                <NButton 
+                <NButton
                   onClick={() => setIsMedicalModalOpen(true)}
                   className="w-full"
                 >
                   Add Medical Record
                 </NButton>
-                <NButton 
+                <NButton
                   onClick={() => window.location.href = '/schedule'}
                   className="w-full"
                 >
@@ -317,7 +353,7 @@ export default function ProfilePage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Last Donation</label>
                   <div className="text-gray-900 flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
-                    {profile.last_donation_date 
+                    {profile.last_donation_date
                       ? format(new Date(profile.last_donation_date), "MMM dd, yyyy")
                       : "Never"
                     }
@@ -436,7 +472,7 @@ export default function ProfilePage() {
       {/* Edit Profile Modal */}
       <NModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)}>
         <h2 className="text-xl font-semibold text-[#e74c3c] mb-4">Edit Profile</h2>
-        
+
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <NField
@@ -452,7 +488,7 @@ export default function ProfilePage() {
               onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
             />
           </div>
-          
+
           <div className="grid grid-cols-2 gap-4">
             <NField
               label="Blood Type"
@@ -487,9 +523,9 @@ export default function ProfilePage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">Availability Status</label>
             <NToggle
               checked={editForm.availability_status === 'available'}
-              onChange={(checked) => setEditForm({ 
-                ...editForm, 
-                availability_status: checked ? 'available' : 'unavailable' 
+              onChange={(checked) => setEditForm({
+                ...editForm,
+                availability_status: checked ? 'available' : 'unavailable'
               })}
               label={editForm.availability_status === 'available' ? 'Available' : 'Unavailable'}
             />
@@ -515,13 +551,13 @@ export default function ProfilePage() {
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
-          <NButton 
+          <NButton
             onClick={() => setIsEditModalOpen(false)}
             className="bg-gray-200 text-gray-700"
           >
             Cancel
           </NButton>
-          <NButton 
+          <NButton
             onClick={handleUpdateProfile}
             disabled={loading}
           >
@@ -533,7 +569,7 @@ export default function ProfilePage() {
       {/* Add Medical Record Modal */}
       <NModal isOpen={isMedicalModalOpen} onClose={() => setIsMedicalModalOpen(false)}>
         <h2 className="text-xl font-semibold text-[#e74c3c] mb-4">Add Medical Record</h2>
-        
+
         <div className="space-y-4">
           <NField
             label="Record Type"
@@ -590,13 +626,13 @@ export default function ProfilePage() {
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
-          <NButton 
+          <NButton
             onClick={() => setIsMedicalModalOpen(false)}
             className="bg-gray-200 text-gray-700"
           >
             Cancel
           </NButton>
-          <NButton 
+          <NButton
             onClick={handleAddMedicalRecord}
             disabled={loading}
           >
