@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { NCard, NBadge, NAlert, NList, NListItem } from "@/components/nui"
+import { NBadge, NAlert, NList, NListItem } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { Heart, Clock } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
