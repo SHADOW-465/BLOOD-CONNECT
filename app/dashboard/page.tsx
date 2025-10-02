@@ -7,6 +7,7 @@ import { kmDistance } from "@/lib/compatibility"
 import { formatDistanceToNow, addMonths } from "date-fns"
 import { toast } from "sonner"
 import RequestActionButtons from "@/components/RequestActionButtons"
+import { useAuth } from "@/lib/hooks/useAuth"
 
 type RequestRow = {
   id: string
@@ -29,13 +30,13 @@ type Rh = "+" | "-"
 type Urgency = "low" | "medium" | "high" | "critical"
 
 export default function DashboardPage() {
+  const { user, isLoading: isAuthLoading } = useAuth()
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
-  const [loading, setLoading] = useState(true) // Start with loading true
+  const [isLoadingData, setIsLoadingData] = useState(true)
   const [requests, setRequests] = useState<RequestRow[]>([])
   const [isEligibleToDonate, setIsEligibleToDonate] = useState(true)
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
   const [isSosModalOpen, setIsSosModalOpen] = useState(false)
-  const [userId, setUserId] = useState<string | null>(null)
   const [submittingRequestId, setSubmittingRequestId] = useState<string | null>(null)
 
   const [sosForm, setSosForm] = useState({
@@ -50,7 +51,6 @@ export default function DashboardPage() {
   })
 
   const loadNearby = useCallback(async () => {
-    setLoading(true)
     try {
         const res = await fetch("/api/requests")
         if (!res.ok) throw new Error("Failed to fetch requests")
@@ -58,18 +58,15 @@ export default function DashboardPage() {
         setRequests(data)
     } catch(e) {
         toast.error("Could not load nearby requests.")
-    } finally {
-        setLoading(false)
     }
   }, [])
 
   const fetchInitialData = useCallback(async () => {
     try {
+        setIsLoadingData(true)
         const profileRes = await fetch("/api/profile")
         if (!profileRes.ok) return
         const profile = await profileRes.json()
-
-        setUserId(profile.id)
 
         if (profile.last_donation_date) {
             const lastDonation = new Date(profile.last_donation_date)
@@ -79,15 +76,11 @@ export default function DashboardPage() {
         } else {
             setIsEligibleToDonate(true)
         }
-
-        // Here you would fetch requests the user has already accepted
-        // const acceptedRes = await fetch("/api/user/accepted-requests");
-        // const acceptedIds = await acceptedRes.json();
-        // setAcceptedRequests(new Set(acceptedIds));
-
     } catch(e) {
         console.error("Could not fetch initial data", e)
         toast.error("Could not load your user data.")
+    } finally {
+        setIsLoadingData(false)
     }
   }, [])
 
@@ -97,13 +90,15 @@ export default function DashboardPage() {
       () => setLoc(null),
       { enableHighAccuracy: true },
     )
-    loadNearby()
-    fetchInitialData()
-  }, [loadNearby, fetchInitialData])
+    if(user) {
+      loadNearby()
+      fetchInitialData()
+    }
+  }, [user, loadNearby, fetchInitialData])
 
   async function handleSendRequest() {
     if (!loc) return
-    setLoading(true)
+    setSubmittingRequestId("sos")
     try {
       const res = await fetch("/api/requests", {
         method: "POST",
@@ -127,7 +122,7 @@ export default function DashboardPage() {
     } catch (e) {
       toast.error("Failed to send emergency request.")
     } finally {
-      setLoading(false)
+      setSubmittingRequestId(null)
       setIsSosModalOpen(false)
     }
   }
@@ -197,6 +192,14 @@ export default function DashboardPage() {
       .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9))
   }, [requests, loc])
 
+  if (isAuthLoading) {
+    return (
+      <div className="flex justify-center items-center h-screen bg-gray-50">
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -239,7 +242,11 @@ export default function DashboardPage() {
                 <Activity className="w-6 h-6 mr-3 text-red-500" />
                 Nearby Emergency Requests
             </h2>
-            {requestsWithDistance.length > 0 ? (
+            {isLoadingData ? (
+                <div className="flex justify-center items-center py-8">
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-red-500"></div>
+                </div>
+            ) : requestsWithDistance.length > 0 ? (
               <NList>
                 {requestsWithDistance.map((r) => (
                   <NListItem key={r.id}>
@@ -280,9 +287,8 @@ export default function DashboardPage() {
                       onShare={handleShareRequest}
                       isEligibleToDonate={isEligibleToDonate}
                       isAccepting={submittingRequestId === r.id}
-                      // In a real app, isAccepted would come from the request's status or a separate user data fetch
                       isAccepted={r.status.toLowerCase() === 'accepted'}
-                      isOwnRequest={!!userId && userId === r.requester_id}
+                      isOwnRequest={!!user && user.id === r.requester_id}
                     />
                   </NListItem>
                 ))}
