@@ -1,90 +1,97 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Bell, Home, User, Settings, LogOut, Droplet, ChevronsLeft, X } from "lucide-react"
+import { Bell, Home, User, Settings, LogOut, X, ChevronsLeft, ChevronsRight } from "lucide-react"
 
 interface SidebarProps {
   isMobileOpen: boolean
   setMobileOpen: (isOpen: boolean) => void
 }
 
-const SidebarContent = ({ isMinimized, isMobile, setMobileOpen }: { isMinimized: boolean, isMobile: boolean, setMobileOpen?: (isOpen: boolean) => void }) => {
+const navItems = [
+  { href: "/dashboard", icon: Home, label: "Dashboard" },
+  { href: "/profile", icon: User, label: "Profile" },
+  { href: "/notifications", icon: Bell, label: "Notifications" },
+  { href: "/settings", icon: Settings, label: "Settings" },
+]
+
+const NavLink = ({ item, isExpanded }: { item: typeof navItems[0], isExpanded: boolean }) => {
   const pathname = usePathname()
-  const navItems = [
-    { href: "/dashboard", icon: Home, label: "Dashboard" },
-    { href: "/profile", icon: User, label: "Profile" },
-    { href: "/notifications", icon: Bell, label: "Notifications" },
-    { href: "/settings", icon: Settings, label: "Settings" },
-  ]
+  const isActive = pathname === item.href
   return (
-    <div className="flex flex-col h-full">
-        <nav className="flex-1 p-4 space-y-2">
+    <Link
+      href={item.href}
+      className={`flex items-center h-12 px-4 rounded-lg transition-colors text-gray-300 hover:bg-gray-700 hover:text-white ${isActive ? "bg-gray-700 text-white" : ""}`}
+    >
+      <item.icon className="w-6 h-6 shrink-0" />
+      <span className={`ml-4 text-sm font-medium transition-opacity duration-200 ${isExpanded ? "opacity-100" : "opacity-0"}`}>
+        {item.label}
+      </span>
+    </Link>
+  )
+}
+
+const SidebarContent = ({ isExpanded, isMobile, setMobileOpen }: { isExpanded: boolean, isMobile: boolean, setMobileOpen?: (isOpen: boolean) => void }) => {
+  return (
+    <div className="flex flex-col h-full p-2">
+        <nav className="flex-1 space-y-2 mt-16">
             {navItems.map((item) => (
-            <Link
-                key={item.label}
-                href={item.href}
-                onClick={() => isMobile && setMobileOpen && setMobileOpen(false)}
-                className={`flex items-center p-2 rounded-lg transition-colors ${
-                pathname === item.href
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                } ${isMinimized ? "justify-center" : ""}`}
-            >
-                <item.icon className={`w-5 h-5 ${!isMinimized ? "mr-3" : ""}`} />
-                {!isMinimized && item.label}
-            </Link>
+              <NavLink key={item.label} item={item} isExpanded={isExpanded}/>
             ))}
         </nav>
-        <div className="p-4 border-t border-sidebar-border">
+        <div className="p-2">
             <button
-            className={`flex items-center p-2 rounded-lg w-full text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
-                isMinimized ? "justify-center" : ""
-            }`}>
-            <LogOut className={`w-5 h-5 ${!isMinimized ? "mr-3" : ""}`} />
-            {!isMinimized && "Logout"}
+              className="flex items-center h-12 px-4 rounded-lg w-full text-left text-gray-300 hover:bg-gray-700 hover:text-white"
+            >
+              <LogOut className="w-6 h-6 shrink-0" />
+              <span className={`ml-4 text-sm font-medium transition-opacity duration-200 ${isExpanded ? "opacity-100" : "opacity-0"}`}>Logout</span>
             </button>
         </div>
     </div>
-  );
-};
-
+  )
+}
 
 const Sidebar = ({ isMobileOpen, setMobileOpen }: SidebarProps) => {
-  const [isMinimized, setIsMinimized] = useState(false)
+  const [isPinned, setIsPinned] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
+  const isExpanded = isPinned || isHovered
+
+  // Close mobile sidebar on route change
+  const pathname = usePathname()
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname, setMobileOpen])
 
   return (
     <>
       {/* Mobile Overlay */}
-      {isMobileOpen && <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setMobileOpen(false)}></div>}
+      {isMobileOpen && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)}></div>}
 
       {/* Mobile Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border transform transition-transform duration-300 ease-in-out md:hidden ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
-            <div className="flex items-center">
-                <Droplet className="h-8 w-8 text-red-500" />
-                <h1 className="text-2xl font-bold text-sidebar-primary ml-2">BloodLink</h1>
-            </div>
-            <button onClick={() => setMobileOpen(false)} className="text-sidebar-foreground">
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-800 text-white transform transition-transform duration-300 ease-in-out md:hidden ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="p-4 flex items-center justify-end">
+            <button onClick={() => setMobileOpen(false)} className="text-gray-300 hover:text-white">
                 <X className="w-6 h-6" />
             </button>
         </div>
-        <SidebarContent isMinimized={false} isMobile={true} setMobileOpen={setMobileOpen} />
+        <SidebarContent isExpanded={true} isMobile={true} setMobileOpen={setMobileOpen} />
       </aside>
 
       {/* Desktop Sidebar */}
-      <aside className={`hidden md:flex flex-col h-full bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 ${isMinimized ? "w-20" : "w-64"}`}>
-        <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
-            <div className="flex items-center">
-                <Droplet className="h-8 w-8 text-red-500" />
-                {!isMinimized && <h1 className="text-2xl font-bold text-sidebar-primary ml-2">BloodLink</h1>}
-            </div>
-            <button onClick={() => setIsMinimized(!isMinimized)} className="text-sidebar-foreground">
-                <ChevronsLeft className={`w-6 h-6 transition-transform duration-300 ${isMinimized ? "rotate-180" : ""}`} />
-            </button>
-        </div>
-        <SidebarContent isMinimized={isMinimized} isMobile={false} />
+      <aside
+        className={`hidden md:flex flex-col h-full bg-gray-800 text-white transition-all duration-300 ease-in-out relative ${isExpanded ? "w-64" : "w-20"}`}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <button
+          onClick={() => setIsPinned(!isPinned)}
+          className="absolute top-4 -right-3 z-10 p-1 bg-gray-700 text-white rounded-full shadow-md hover:bg-red-500 transition-colors"
+        >
+          {isPinned ? <ChevronsLeft className="w-5 h-5" /> : <ChevronsRight className="w-5 h-5" />}
+        </button>
+        <SidebarContent isExpanded={isExpanded} isMobile={false} />
       </aside>
     </>
   )
