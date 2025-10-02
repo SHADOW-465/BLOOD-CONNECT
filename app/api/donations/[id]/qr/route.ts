@@ -1,70 +1,62 @@
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
-import { getSupabaseServerClient } from "@/lib/supabase/server"
 import QRCode from 'qrcode'
 
+export const dynamic = "force-dynamic"
+
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const supabase = getSupabaseServerClient()
+  const supabase = createRouteHandlerClient({ cookies })
   const { id } = params
 
-  // Get or update donation details with confirmation token
-  let { data: donation, error } = await supabase
-    .from("donations")
-    .select("*, donor_id, request_id, confirmation_token, token_expires_at")
-    .eq("id", id)
-    .single()
-
-  if (error || !donation) {
-    return NextResponse.json({ error: "Donation not found" }, { status: 404 })
-  }
-
-  if (donation.confirmed_at) {
-    return NextResponse.json({ error: "Donation already confirmed" }, { status: 400 })
-  }
-
-  // If no confirmation token exists, generate one
-  if (!donation.confirmation_token || !donation.token_expires_at) {
-    const confirmationToken = crypto.randomUUID()
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
-    
-    const { data: updatedDonation, error: updateError } = await supabase
+  try {
+    let { data: donation, error } = await supabase
       .from("donations")
-      .update({ 
-        confirmation_token: confirmationToken,
-        token_expires_at: expiresAt.toISOString()
-      })
-      .eq("id", id)
       .select("*, donor_id, request_id, confirmation_token, token_expires_at")
+      .eq("id", id)
       .single()
 
-    if (updateError) {
-      console.error('Error updating donation token:', updateError)
-      return NextResponse.json({ error: 'Failed to generate confirmation token' }, { status: 500 })
+    if (error || !donation) {
+      return new NextResponse(JSON.stringify({ error: "Donation not found" }), { status: 404 })
     }
-    
-    donation = updatedDonation
-  }
 
-  // Generate QR code data
-  const qrData = {
-    type: "blood_donation_confirmation",
-    donation_id: donation.id,
-    token: donation.confirmation_token,
-    donor_id: donation.donor_id,
-    expires_at: donation.token_expires_at
-  }
+    if (donation.confirmed_at) {
+      return new NextResponse(JSON.stringify({ error: "Donation already confirmed" }), { status: 400 })
+    }
 
-  try {
-    // Generate QR code as data URL
+    if (!donation.confirmation_token || !donation.token_expires_at) {
+      const confirmationToken = crypto.randomUUID()
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
+      const { data: updatedDonation, error: updateError } = await supabase
+        .from("donations")
+        .update({
+          confirmation_token: confirmationToken,
+          token_expires_at: expiresAt.toISOString()
+        })
+        .eq("id", id)
+        .select("*, donor_id, request_id, confirmation_token, token_expires_at")
+        .single()
+
+      if (updateError) throw updateError
+
+      donation = updatedDonation
+    }
+
+    const qrData = {
+      type: "blood_donation_confirmation",
+      donation_id: donation.id,
+      token: donation.confirmation_token,
+      donor_id: donation.donor_id,
+      expires_at: donation.token_expires_at
+    }
+
     const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData), {
       width: 300,
       margin: 2,
-      color: {
-        dark: '#e74c3c',  // Brand red
-        light: '#ffffff'
-      }
+      color: { dark: '#e74c3c', light: '#ffffff' }
     })
 
-    // Update donation with QR code URL
     await supabase
       .from("donations")
       .update({ qr_code_url: qrCodeDataURL })
@@ -76,47 +68,52 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       expires_at: donation.token_expires_at,
       patient_info: donation.request_id ? "Emergency request donation" : "Scheduled donation"
     })
-  } catch (qrError) {
-    console.error('QR code generation error:', qrError)
-    return NextResponse.json({ error: "Failed to generate QR code" }, { status: 500 })
+  } catch (error: any) {
+    return new NextResponse(
+      JSON.stringify({ error: "Failed to generate QR code", details: error.message }),
+      { status: 500 }
+    )
   }
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const supabase = getSupabaseServerClient()
-  const { 
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createRouteHandlerClient({ cookies })
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!user) {
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+    }
+
+    const { donor_id, request_id, volume_ml = 450 } = await req.json()
+
+    const confirmationToken = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
+    const { data: donation, error } = await supabase
+      .from("donations")
+      .insert({
+        id: params.id,
+        donor_id,
+        request_id,
+        volume_ml,
+        status: 'recorded',
+        donated_at: new Date().toISOString(),
+        confirmation_token: confirmationToken,
+        token_expires_at: expiresAt.toISOString(),
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return NextResponse.json({ message: "Donation record created", donation })
+  } catch (error: any) {
+    return new NextResponse(
+      JSON.stringify({ error: "Failed to create donation record", details: error.message }),
+      { status: 500 }
+    )
   }
-
-  const { donor_id, request_id, volume_ml = 450 } = await req.json()
-
-  // Generate confirmation token and expiry
-  const confirmationToken = crypto.randomUUID()
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
-
-  // Create a new donation record for QR generation
-  const { data: donation, error } = await supabase
-    .from("donations")
-    .insert({
-      id: params.id, // Use the provided ID
-      donor_id,
-      request_id,
-      volume_ml,
-      status: 'recorded',
-      donated_at: new Date().toISOString(),
-      confirmation_token: confirmationToken,
-      token_expires_at: expiresAt.toISOString(),
-    })
-    .select()
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: "Failed to create donation record" }, { status: 500 })
-  }
-
-  return NextResponse.json({ message: "Donation record created", donation })
 }

@@ -1,41 +1,47 @@
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
-import { getSupabaseServerClient } from "@/lib/supabase/server"
+
+export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const supabase = getSupabaseServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createRouteHandlerClient({ cookies })
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+    if (!user) {
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+    }
 
-  const { data: requests, error } = await supabase
-    .from("blood_requests")
-    .select(
-      `
-      *,
-      request_responses:request_responses(
-        id,
-        donor_id,
-        users:donor_id(
-          name,
-          user_profiles(
+    const { data: requests, error } = await supabase
+      .from("emergency_requests")
+      .select(
+        `
+        *,
+        request_matches (
+          id,
+          donor_id,
+          profiles (
+            name,
+            avatar_url,
             blood_type,
-            rh_factor,
-            profile_picture_url
+            rh
           )
         )
+      `,
       )
-    `
+      .eq("requester_id", user.id)
+      .order("created_at", { ascending: false })
+
+    if (error) throw error
+
+    return NextResponse.json(requests)
+  } catch (error: any) {
+    return new NextResponse(
+      JSON.stringify({ error: "Error fetching your requests", details: error.message }),
+      { status: 500 },
     )
-    .eq("requester_id", user.id)
-    .order("created_at", { ascending: false })
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
   }
-
-  return NextResponse.json(requests)
 }
