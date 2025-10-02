@@ -40,12 +40,6 @@ export default function RequestActionButtons({
     }
   }
 
-  const handleShare = async () => {
-    if (onShare) {
-      onShare(request)
-    }
-  }
-
   return (
     <div className="flex gap-2 mt-3">
       <NButton
