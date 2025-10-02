@@ -70,28 +70,14 @@ A comprehensive, production-ready blood donation management application built wi
 
 ## 🗄️ Database Schema
 
-### Core Tables
-- **profiles**: Donor profile information
-- **emergency_requests**: Emergency blood requests
-- **request_matches**: Smart matching results
-- **donations**: Donation records
-- **appointments**: Scheduled donations
-- **hospitals**: Hospital/location data
-- **inventory**: Blood inventory tracking
-
-### Advanced Tables
-- **medical_history**: Medical records and health data
-- **notifications**: Multi-channel notification system
-- **donation_calendar**: Personal donation scheduling
-- **weather_alerts**: Weather integration data
-- **donation_queues**: Queue management system
+The database schema is defined in the `scripts/sql/001_init.sql` file. This script creates all the necessary tables, columns, and relationships for the application to function correctly.
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Node.js 18+ 
-- npm or pnpm
-- Supabase account
+- pnpm (recommended)
+- A Supabase account
 
 ### Installation
 
@@ -103,23 +89,22 @@ A comprehensive, production-ready blood donation management application built wi
 
 2. **Install dependencies**
    ```bash
-   npm install
-   # or
    pnpm install
    ```
 
 3. **Set up Supabase**
-   - Create a new Supabase project
-   - Copy the project URL and anon key
-   - Run the SQL scripts from `scripts/sql/001_init.sql` in your Supabase SQL editor
+   - Create a new project on [Supabase](https://supabase.com/).
+   - Navigate to the **SQL Editor** in your Supabase project dashboard.
+   - Open the `scripts/sql/001_init.sql` file from this repository, copy its contents, and run it in the SQL Editor. This will create all the necessary database tables.
+   - **(Optional but Recommended)** To populate your database with sample data for testing, run the contents of `scripts/seed.sql` in the SQL Editor.
 
 4. **Environment Variables**
-   Create a `.env.local` file:
+   Create a `.env.local` file in the root of the project and add the following, replacing the placeholder values with your actual Supabase project credentials:
    ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL=http://localhost:3000/dashboard
    ```
+   You can find these keys in your Supabase project settings under **API**.
 
 5. **Run the development server**
    ```bash
