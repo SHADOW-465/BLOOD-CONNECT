@@ -25,7 +25,6 @@ export async function GET(req: Request) {
           donor_id,
           profiles (
             name,
-            avatar_url,
             blood_type,
             rh
           )

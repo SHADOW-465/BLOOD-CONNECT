@@ -1,15 +1,14 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Camera, Edit, User, Mail, Phone, MapPin, Save, X, Heart, TrendingUp, Loader2 } from "lucide-react"
+import { Edit, User, Mail, Phone, MapPin, Save, X, Heart, TrendingUp, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/useAuth"
 
 type Profile = {
+  id: string
   name: string | null
   phone: string | null
-  location: string | null
-  avatar_url: string | null
   email: string | null
   stats: {
     donations: number
@@ -27,10 +26,7 @@ export default function ProfilePage() {
   const [editForm, setEditForm] = useState({
     name: "",
     phone: "",
-    location: "",
   })
-  const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
   const fetchProfile = useCallback(async () => {
     setIsLoadingData(true)
@@ -44,7 +40,6 @@ export default function ProfilePage() {
       setEditForm({
         name: data.name || "",
         phone: data.phone || "",
-        location: data.location || "",
       })
     } catch (error) {
       toast.error("Could not load your profile. Please try again later.")
@@ -59,24 +54,11 @@ export default function ProfilePage() {
     }
   }, [user, fetchProfile])
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      setAvatarFile(file)
-      const previewUrl = URL.createObjectURL(file)
-      setAvatarPreview(previewUrl)
-    }
-  }
-
   const handleUpdateProfile = async () => {
     setIsUpdating(true)
     const formData = new FormData()
     formData.append("name", editForm.name)
     formData.append("phone", editForm.phone)
-    formData.append("location", editForm.location)
-    if (avatarFile) {
-      formData.append("avatar", avatarFile)
-    }
 
     try {
       const response = await fetch("/api/profile", {
@@ -91,8 +73,6 @@ export default function ProfilePage() {
       toast.success("Profile updated successfully!")
       await fetchProfile() // Re-fetch profile to show updated data
       setIsEditModalOpen(false)
-      setAvatarFile(null)
-      setAvatarPreview(null)
 
     } catch (error) {
       toast.error("Could not update your profile. Please try again.")
@@ -128,7 +108,7 @@ export default function ProfilePage() {
           <div className="flex flex-col items-center sm:flex-row sm:items-start text-center sm:text-left">
             <div className="relative mb-4 sm:mb-0 sm:mr-6">
               <img
-                src={profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.name || profile.email}&background=e74c3c&color=fff&size=128`}
+                src={`https://ui-avatars.com/api/?name=${profile.name || profile.email}&background=e74c3c&color=fff&size=128`}
                 alt="Profile"
                 className="w-32 h-32 rounded-full object-cover border-4 border-red-500"
               />
@@ -180,13 +160,6 @@ export default function ProfilePage() {
                         <p className="font-medium text-gray-800">{profile.phone || "Not provided"}</p>
                     </div>
                 </div>
-                <div className="flex items-center">
-                    <MapPin className="w-5 h-5 text-gray-400 mr-4"/>
-                    <div>
-                        <label className="text-sm text-gray-500">Location</label>
-                        <p className="font-medium text-gray-800">{profile.location || "Not provided"}</p>
-                    </div>
-                </div>
             </div>
           </div>
         </div>
@@ -198,20 +171,9 @@ export default function ProfilePage() {
              {isUpdating && <div className="absolute inset-0 bg-white bg-opacity-75 flex justify-center items-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-red-500"></div></div>}
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Edit Profile</h2>
 
-            <div className="flex justify-center mb-6">
-                <div className="relative">
-                    <img src={avatarPreview || profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.name || profile.email}&background=e74c3c&color=fff&size=128`} alt="Avatar Preview" className="w-32 h-32 rounded-full object-cover"/>
-                    <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-red-500 text-white p-2 rounded-full cursor-pointer hover:bg-red-600">
-                        <Camera className="w-5 h-5"/>
-                        <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange}/>
-                    </label>
-                </div>
-            </div>
-
             <div className="space-y-4">
               <input type="text" placeholder="Full Name" value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="w-full p-3 border rounded-lg"/>
               <input type="text" placeholder="Phone Number" value={editForm.phone} onChange={(e) => setEditForm({...editForm, phone: e.target.value})} className="w-full p-3 border rounded-lg"/>
-              <input type="text" placeholder="Location (e.g., City, State)" value={editForm.location} onChange={(e) => setEditForm({...editForm, location: e.target.value})} className="w-full p-3 border rounded-lg"/>
             </div>
 
             <div className="mt-8 flex justify-end space-x-3">

@@ -20,36 +20,24 @@ export async function POST(
 
     const requestId = params.id
 
-    // Check if the user has already accepted this request
-    const { data: existingMatch, error: matchError } = await supabase
-        .from("request_matches")
-        .select("id")
-        .eq("request_id", requestId)
-        .eq("donor_id", user.id)
-        .single()
+    // Call the database function to handle the acceptance atomically
+    const { error } = await supabase.rpc('accept_request', {
+      request_id_input: requestId,
+      donor_id_input: user.id
+    })
 
-    if(matchError && matchError.code !== 'PGRST116') throw matchError;
-    if(existingMatch) {
-        return new NextResponse(JSON.stringify({ error: "You have already accepted this request." }), { status: 409 })
+    if (error) {
+        // Check for specific error codes if the function provides them
+        // For example, if the function raises an exception for "already accepted"
+        if (error.code === 'P0001') { // P0001 is the generic code for a raised exception
+             return new NextResponse(JSON.stringify({ error: error.message }), { status: 409 })
+        }
+        throw error
     }
 
-    // Create a new match record
-    const { data, error } = await supabase
-      .from("request_matches")
-      .insert({
-        request_id: requestId,
-        donor_id: user.id,
-        status: "accepted",
-      })
-      .select()
-
-    if (error) throw error
-
-    // Optionally, you could also update the status of the main request here
-    // if the logic requires it (e.g., if only one donor can accept)
-
-    return NextResponse.json({ message: "Request accepted successfully", data: data[0] })
+    return NextResponse.json({ message: "Request accepted successfully" })
   } catch (error: any) {
+    console.error("Error in accept_request RPC:", error)
     return new NextResponse(
       JSON.stringify({ error: "There was an error accepting the request.", details: error.message }),
       { status: 500 },

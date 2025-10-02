@@ -287,7 +287,7 @@ export default function DashboardPage() {
                       onShare={handleShareRequest}
                       isEligibleToDonate={isEligibleToDonate}
                       isAccepting={submittingRequestId === r.id}
-                      isAccepted={r.status.toLowerCase() === 'accepted'}
+                      isAccepted={r.status.toLowerCase() === 'matched'}
                       isOwnRequest={!!user && user.id === r.requester_id}
                     />
                   </NListItem>
@@ -383,8 +383,8 @@ export default function DashboardPage() {
           <NButton onClick={() => setIsSosModalOpen(false)} className="bg-gray-200 text-gray-700">
             Cancel
           </NButton>
-          <NButton onClick={handleSendRequest} disabled={loading}>
-            {loading ? "Sending..." : "Send Request"}
+          <NButton onClick={handleSendRequest} disabled={submittingRequestId === 'sos'}>
+            {submittingRequestId === 'sos' ? "Sending..." : "Send Request"}
           </NButton>
         </div>
       </NModal>

@@ -15,10 +15,10 @@ export async function GET() {
       return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
     }
 
-    // Fetch profile details
+    // Fetch profile details - selecting only columns that exist in the schema
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("name, phone, location, avatar_url, last_donation_date")
+      .select("id, name, phone, last_donation_date, location_lat, location_lng")
       .eq("id", user.id)
       .single()
 
@@ -29,7 +29,7 @@ export async function GET() {
     // Fetch donation stats
     const { data: donations, error: donationsError } = await supabase
         .from("donations")
-        .select("id")
+        .select("id", { count: 'exact' })
         .eq("donor_id", user.id)
 
     if(donationsError) {
@@ -68,38 +68,13 @@ export async function POST(request: Request) {
         const formData = await request.formData()
         const name = formData.get("name") as string
         const phone = formData.get("phone") as string
-        const location = formData.get("location") as string
-        const avatarFile = formData.get("avatar") as File | null
+        // Note: Location and Avatar logic removed to align with the current DB schema.
+        // This would be re-introduced after a schema migration.
 
-        let avatar_url: string | undefined = undefined;
-
-        if (avatarFile && avatarFile.size > 0) {
-            const fileExt = avatarFile.name.split('.').pop()
-            const fileName = `${user.id}-${Date.now()}.${fileExt}`
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from("avatars")
-                .upload(fileName, avatarFile, {
-                    cacheControl: '3600',
-                    upsert: true
-                })
-
-            if (uploadError) {
-                throw new Error(`Avatar upload failed: ${uploadError.message}`)
-            }
-
-            const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(uploadData.path)
-            avatar_url = publicUrl
-        }
-
-        const updates: { name: string; phone: string; location: string; updated_at: string; avatar_url?: string } = {
+        const updates: { name: string; phone: string; updated_at: string; } = {
             name,
             phone,
-            location,
             updated_at: new Date().toISOString(),
-        }
-
-        if (avatar_url) {
-            updates.avatar_url = avatar_url
         }
 
         const { error: profileError } = await supabase
@@ -111,7 +86,7 @@ export async function POST(request: Request) {
             throw profileError
         }
 
-        return NextResponse.json({ message: "Profile updated successfully", avatar_url })
+        return NextResponse.json({ message: "Profile updated successfully" })
 
     } catch (error: any) {
         return new NextResponse(
