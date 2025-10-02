@@ -12,6 +12,7 @@ export async function GET() {
       .from("emergency_requests")
       .select(`
         id,
+        requester_id,
         blood_type,
         rh,
         urgency,
@@ -24,7 +25,7 @@ export async function GET() {
         hospital,
         contact
       `)
-      .eq("status", "pending") // Only fetch active requests
+      .eq("status", "open") // Corrected status to 'open' to match schema
       .order("created_at", { ascending: false })
 
     if (error) throw error
@@ -52,6 +53,9 @@ export async function POST(request: Request) {
 
     const body = await request.json()
 
+    // Create a timestamp for 24 hours from now for the expires_at field
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
     const { data, error } = await supabase
       .from("emergency_requests")
       .insert({
@@ -66,13 +70,15 @@ export async function POST(request: Request) {
         patient_age: body.patient_age,
         hospital: body.hospital,
         contact: body.contact,
-        status: 'pending',
+        status: 'open', // Corrected status to 'open' to match schema
+        expires_at: expiresAt,
       })
       .select()
+      .single() // Expect a single record to be returned
 
     if (error) throw error
 
-    return NextResponse.json({ message: "Request created successfully", data: data[0] })
+    return NextResponse.json({ message: "Request created successfully", data })
   } catch (error: any) {
     return new NextResponse(
       JSON.stringify({ error: "There was an error creating the request.", details: error.message }),

@@ -233,3 +233,35 @@ CREATE TABLE IF NOT EXISTS public.request_shares (
 ALTER TABLE public.request_shares ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Read own shares" ON public.request_shares FOR SELECT USING (auth.uid() = shared_by);
 CREATE POLICY "Insert own shares" ON public.request_shares FOR INSERT WITH CHECK (auth.uid() = shared_by);
+
+-- Function and Trigger to create a profile for new users
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id)
+  values (new.id);
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- Function to handle accepting a request
+create or replace function public.accept_request(request_id_input uuid, donor_id_input uuid)
+returns void as $$
+begin
+  -- Update the request status to 'matched'
+  update public.emergency_requests
+  set status = 'matched'
+  where id = request_id_input;
+
+  -- Create the match record
+  insert into public.request_matches(request_id, donor_id, status)
+  values(request_id_input, donor_id_input, 'accepted');
+end;
+$$ language plpgsql;
