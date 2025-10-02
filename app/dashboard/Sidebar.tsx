@@ -17,28 +17,29 @@ const navItems = [
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
 
-const NavLink = ({ item, isExpanded }: { item: typeof navItems[0], isExpanded: boolean }) => {
+const NavLink = ({ item, isExpanded, onClick }: { item: typeof navItems[0], isExpanded: boolean, onClick?: () => void }) => {
   const pathname = usePathname()
   const isActive = pathname === item.href
   return (
     <Link
       href={item.href}
+      onClick={onClick}
       className={`flex items-center h-12 px-4 rounded-lg transition-colors text-gray-300 hover:bg-gray-700 hover:text-white ${isActive ? "bg-gray-700 text-white" : ""}`}
     >
       <item.icon className="w-6 h-6 shrink-0" />
-      <span className={`ml-4 text-sm font-medium transition-opacity duration-200 ${isExpanded ? "opacity-100" : "opacity-0"}`}>
+      <span className={`ml-4 text-sm font-medium whitespace-nowrap transition-opacity duration-200 ${isExpanded ? "opacity-100" : "opacity-0"}`}>
         {item.label}
       </span>
     </Link>
   )
 }
 
-const SidebarContent = ({ isExpanded, isMobile, setMobileOpen }: { isExpanded: boolean, isMobile: boolean, setMobileOpen?: (isOpen: boolean) => void }) => {
+const SidebarContent = ({ isExpanded, onLinkClick }: { isExpanded: boolean, onLinkClick?: () => void }) => {
   return (
     <div className="flex flex-col h-full p-2">
         <nav className="flex-1 space-y-2 mt-16">
             {navItems.map((item) => (
-              <NavLink key={item.label} item={item} isExpanded={isExpanded}/>
+              <NavLink key={item.label} item={item} isExpanded={isExpanded} onClick={onLinkClick} />
             ))}
         </nav>
         <div className="p-2">
@@ -46,7 +47,7 @@ const SidebarContent = ({ isExpanded, isMobile, setMobileOpen }: { isExpanded: b
               className="flex items-center h-12 px-4 rounded-lg w-full text-left text-gray-300 hover:bg-gray-700 hover:text-white"
             >
               <LogOut className="w-6 h-6 shrink-0" />
-              <span className={`ml-4 text-sm font-medium transition-opacity duration-200 ${isExpanded ? "opacity-100" : "opacity-0"}`}>Logout</span>
+              <span className={`ml-4 text-sm font-medium whitespace-nowrap transition-opacity duration-200 ${isExpanded ? "opacity-100" : "opacity-0"}`}>Logout</span>
             </button>
         </div>
     </div>
@@ -58,11 +59,12 @@ const Sidebar = ({ isMobileOpen, setMobileOpen }: SidebarProps) => {
   const [isHovered, setIsHovered] = useState(false)
   const isExpanded = isPinned || isHovered
 
-  // Close mobile sidebar on route change
   const pathname = usePathname()
   useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname, setMobileOpen])
+    if (isMobileOpen) {
+      setMobileOpen(false)
+    }
+  }, [pathname, isMobileOpen, setMobileOpen])
 
   return (
     <>
@@ -76,7 +78,7 @@ const Sidebar = ({ isMobileOpen, setMobileOpen }: SidebarProps) => {
                 <X className="w-6 h-6" />
             </button>
         </div>
-        <SidebarContent isExpanded={true} isMobile={true} setMobileOpen={setMobileOpen} />
+        <SidebarContent isExpanded={true} onLinkClick={() => setMobileOpen(false)} />
       </aside>
 
       {/* Desktop Sidebar */}
@@ -91,7 +93,7 @@ const Sidebar = ({ isMobileOpen, setMobileOpen }: SidebarProps) => {
         >
           {isPinned ? <ChevronsLeft className="w-5 h-5" /> : <ChevronsRight className="w-5 h-5" />}
         </button>
-        <SidebarContent isExpanded={isExpanded} isMobile={false} />
+        <SidebarContent isExpanded={isExpanded} />
       </aside>
     </>
   )
