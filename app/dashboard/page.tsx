@@ -1,14 +1,13 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { NButton, NCard, NModal, NField, NStatCard, NBadge, NAlert, NList, NListItem, NProgress } from "@/components/nui"
+import { NButton, NCard, NModal, NField, NBadge, NAlert, NList, NListItem } from "@/components/nui"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { MapPin, HeartPulse, BellRing, Activity, Calendar, User as UserIcon, Clock, Users, TrendingUp, QrCode } from "lucide-react"
+import { MapPin, BellRing, Activity, ShieldCheck, ShieldOff } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
 import { User } from "@supabase/supabase-js"
-import { differenceInDays, formatDistanceToNow } from "date-fns"
+import { differenceInDays, formatDistanceToNow, addMonths } from "date-fns"
 import { toast } from "sonner"
-import QRScanner from "@/components/QRScanner"
 import RequestActionButtons from "@/components/RequestActionButtons"
 
 type RequestRow = {
@@ -27,12 +26,9 @@ type RequestRow = {
   matches_count?: number
 }
 
-type Appointment = {
-  id: string
-  scheduled_at: string
-  location: string
-  status: string
-}
+type BloodType = "A" | "B" | "AB" | "O"
+type Rh = "+" | "-"
+type Urgency = "low" | "medium" | "high" | "critical"
 
 type BloodType = "A" | "B" | "AB" | "O"
 type Rh = "+" | "-"
@@ -44,11 +40,9 @@ export default function DashboardPage() {
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [requests, setRequests] = useState<RequestRow[]>([])
-  const [impact, setImpact] = useState({ donations: 0, lives: 0, streak: 0, responseRate: 0 })
+  const [isEligibleToDonate, setIsEligibleToDonate] = useState(true)
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
-  const [appointments, setAppointments] = useState<Appointment[]>([])
   const [isSosModalOpen, setIsSosModalOpen] = useState(false)
-  const [showQRScanner, setShowQRScanner] = useState(false)
   const [acceptingRequests, setAcceptingRequests] = useState<Set<string>>(new Set())
   const [acceptedRequests, setAcceptedRequests] = useState<Set<string>>(new Set())
   const [sosForm, setSosForm] = useState({
@@ -82,46 +76,16 @@ export default function DashboardPage() {
       if (profile) {
         if (profile.last_donation_date) {
           const lastDonation = new Date(profile.last_donation_date)
-          const nextEligible = new Date(lastDonation.setDate(lastDonation.getDate() + 56))
-          setNextDonationDate(nextEligible)
+          const nextEligibleDate = addMonths(lastDonation, 6)
+          setNextDonationDate(nextEligibleDate)
+          setIsEligibleToDonate(new Date() > nextEligibleDate)
+        } else {
+          setIsEligibleToDonate(true)
         }
+
         if (profile.blood_type && profile.rh) {
           setSosForm((prev) => ({ ...prev, bloodType: profile.blood_type, rh: profile.rh }))
         }
-      }
-
-      const { data: donations } = await supabase.from("donations").select("id, donated_at").eq("donor_id", session.user.id)
-      
-      // Calculate response rate
-      const { data: matches } = await supabase
-        .from("request_matches")
-        .select("status")
-        .eq("donor_id", session.user.id)
-      
-      let responseRate = 0
-      if (matches && matches.length > 0) {
-        const accepted = matches.filter(m => m.status === 'accepted').length
-        responseRate = Math.round((accepted / matches.length) * 100)
-      }
-      
-      if (donations) {
-        setImpact({ 
-          donations: donations.length, 
-          lives: donations.length * 3, 
-          streak: 0,
-          responseRate 
-        })
-      }
-
-      const { data: appointmentData } = await supabase
-        .from("appointments")
-        .select("*")
-        .eq("donor_id", session.user.id)
-        .eq("status", "confirmed")
-        .order("scheduled_at", { ascending: true })
-        .limit(1)
-      if (appointmentData) {
-        setAppointments(appointmentData)
       }
     }
 
@@ -142,7 +106,7 @@ export default function DashboardPage() {
           units_needed: sosForm.units,
           location_lat: loc.lat,
           location_lng: loc.lng,
-          radius_km: 10,
+          radius_km: 10, // This can be made dynamic later
           patient_name: sosForm.patientName,
           patient_age: sosForm.patientAge,
           hospital: sosForm.hospital,
@@ -150,8 +114,10 @@ export default function DashboardPage() {
         }),
       })
       if (!res.ok) throw new Error("Request failed")
+      toast.success("Emergency request sent to nearby donors.")
       await loadNearby()
     } catch (e) {
+      toast.error("Failed to send emergency request.")
       console.log("[v0] SOS error", e)
     } finally {
       setLoading(false)
@@ -187,6 +153,13 @@ export default function DashboardPage() {
     if (!user) {
       toast.error("Please login to help with requests")
       return
+    }
+
+    if (!isEligibleToDonate) {
+        toast.warning("You are not eligible to donate yet.", {
+            description: `You can donate again after ${nextDonationDate ? formatDistanceToNow(nextDonationDate, { addSuffix: true }) : 'your waiting period'}. You can still share requests.`
+        })
+        return
     }
 
     setAcceptingRequests(prev => new Set(prev).add(requestId))
@@ -255,41 +228,6 @@ export default function DashboardPage() {
     }
   }
 
-  const handleQRScan = async (qrData: any) => {
-    try {
-      const response = await fetch('/api/donations/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          donation_id: qrData.donation_id,
-          token: qrData.token
-        })
-      })
-
-      const result = await response.json()
-      
-      if (response.ok) {
-        toast.success(`🎉 Donation confirmed! You helped save ${result.lives_saved} lives!`)
-        setShowQRScanner(false)
-        // Refresh impact data
-        if (user) {
-          const { data: donations } = await supabase.from("donations").select("id, donated_at").eq("donor_id", user.id)
-          if (donations) {
-            setImpact(prev => ({ 
-              ...prev,
-              donations: donations.length, 
-              lives: donations.length * 3, 
-            }))
-          }
-        }
-      } else {
-        toast.error(result.error || "Failed to confirm donation")
-      }
-    } catch (error) {
-      toast.error("Network error occurred")
-    }
-  }
-
   useEffect(() => {
     loadNearby()
     const channel = supabase
@@ -313,78 +251,48 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-5xl grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <NCard className="lg:col-span-3">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold text-[#e74c3c]">Emergency Request</h2>
-                <p className="text-sm text-gray-600">Your location will be used to notify nearby compatible donors.</p>
-              </div>
-              <NButton onClick={() => setIsSosModalOpen(true)} disabled={!loc} className="min-w-56 h-14 text-lg">
-                <BellRing className="w-5 h-5" />
-                SOS Now
-              </NButton>
-            </div>
-          </NCard>
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-4xl space-y-6">
 
-          <NStatCard
-            title="Lives Saved"
-            value={impact.lives}
-            subtitle="Through your donations"
-            icon={<HeartPulse className="w-6 h-6" />}
-            className="lg:col-span-1"
-          />
-          
-          <NStatCard
-            title="Total Donations"
-            value={impact.donations}
-            subtitle="Blood units donated"
-            icon={<TrendingUp className="w-6 h-6" />}
-            className="lg:col-span-1"
-          />
-          
-          <NStatCard
-            title="Response Rate"
-            value={`${impact.responseRate}%`}
-            subtitle="Emergency requests accepted"
-            icon={<Users className="w-6 h-6" />}
-            className="lg:col-span-1"
-          />
+          <NButton
+            onClick={() => setIsSosModalOpen(true)}
+            disabled={!loc}
+            className="w-full h-16 text-lg font-bold bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg"
+          >
+            <BellRing className="w-6 h-6 mr-3" />
+            Request Blood
+          </NButton>
 
+          {/* Donation Eligibility Status */}
           <NCard>
-            <div className="flex items-center gap-3">
-              <Calendar className="w-5 h-5 text-[#e74c3c]" />
-              <h3 className="font-semibold">Next Donation</h3>
-            </div>
-            <div className="mt-4 text-center">
-              {nextDonationDate ? (
-                differenceInDays(nextDonationDate, new Date()) > 0 ? (
-                  <>
-                    <div className="text-2xl font-bold text-[#e74c3c]">
-                      {differenceInDays(nextDonationDate, new Date())} days
+            {isEligibleToDonate ? (
+                <div className="flex items-center text-green-600">
+                    <ShieldCheck className="w-6 h-6 mr-3"/>
+                    <div>
+                        <h3 className="font-semibold">You are eligible to donate!</h3>
+                        <p className="text-sm text-gray-600">You can accept blood requests and save lives.</p>
                     </div>
-                    <div className="text-xs text-gray-600">until you're eligible</div>
-                  </>
-                ) : (
-                  <div className="text-lg font-semibold text-green-600">You are eligible to donate!</div>
-                )
-              ) : (
-                <div className="text-sm text-gray-600">No donation history</div>
-              )}
-              {appointments.length > 0 && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Next appointment: {formatDistanceToNow(new Date(appointments[0].scheduled_at), { addSuffix: true })}
                 </div>
-              )}
-            </div>
+            ) : (
+                <div className="flex items-center text-orange-600">
+                    <ShieldOff className="w-6 h-6 mr-3"/>
+                    <div>
+                        <h3 className="font-semibold">Not eligible to donate yet</h3>
+                        <p className="text-sm text-gray-600">
+                            You can donate again {nextDonationDate ? formatDistanceToNow(nextDonationDate, { addSuffix: true }) : 'soon'}.
+                            You can still share requests.
+                        </p>
+                    </div>
+                </div>
+            )}
           </NCard>
 
-          <NCard className="lg:col-span-2">
-            <div className="flex items-center gap-3 mb-4">
-              <Activity className="w-5 h-5 text-[#e74c3c]" />
-              <h3 className="font-semibold">Nearby Emergency Requests</h3>
-            </div>
+          {/* Nearby Emergency Requests */}
+          <NCard>
+            <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <Activity className="w-6 h-6 mr-3 text-red-500" />
+                Nearby Emergency Requests
+            </h2>
             {requestsWithDistance.length > 0 ? (
               <NList>
                 {requestsWithDistance.map((r) => (
@@ -427,6 +335,7 @@ export default function DashboardPage() {
                       onShare={handleShareRequest}
                       acceptedRequests={acceptedRequests}
                       acceptingRequests={acceptingRequests}
+                      isEligibleToDonate={isEligibleToDonate}
                     />
                   </NListItem>
                 ))}
@@ -441,24 +350,12 @@ export default function DashboardPage() {
               </NAlert>
             )}
           </NCard>
-
-          <NCard>
-            <h3 className="font-semibold">Quick Actions</h3>
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <NButton onClick={() => location.assign("/schedule")}>Schedule Donation</NButton>
-              <NButton onClick={() => location.assign("/blood-onboarding/availability")}>Update Availability</NButton>
-              <NButton onClick={() => location.assign("/blood-onboarding/profile")}>View Profile</NButton>
-              <NButton onClick={() => setShowQRScanner(true)} className="bg-green-50 text-green-700">
-                <QrCode className="w-4 h-4 mr-2" />
-                Confirm Donation
-              </NButton>
-            </div>
-          </NCard>
         </div>
       </div>
       <NModal isOpen={isSosModalOpen} onClose={() => setIsSosModalOpen(false)}>
-        <h2 className="text-xl font-semibold text-[#e74c3c]">New Emergency Request</h2>
-        <div className="mt-4 space-y-4">
+        <h2 className="text-xl font-semibold text-red-500">New Emergency Request</h2>
+        <p className="text-sm text-gray-500 mb-6">Your location will be used to find nearby donors.</p>
+        <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <NField
               label="Blood Type"
@@ -538,16 +435,6 @@ export default function DashboardPage() {
           </NButton>
         </div>
       </NModal>
-
-      {/* QR Scanner Modal */}
-      {showQRScanner && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <QRScanner 
-            onScan={handleQRScan}
-            onClose={() => setShowQRScanner(false)}
-          />
-        </div>
-      )}
     </>
   )
 }

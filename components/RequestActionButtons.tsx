@@ -12,15 +12,17 @@ interface RequestActionButtonsProps {
   onShare?: (request: any) => void
   acceptedRequests?: Set<string>
   acceptingRequests?: Set<string>
+  isEligibleToDonate?: boolean
 }
 
-export default function RequestActionButtons({ 
-  request, 
-  user, 
-  onAccept, 
+export default function RequestActionButtons({
+  request,
+  user,
+  onAccept,
   onShare,
   acceptedRequests = new Set(),
-  acceptingRequests = new Set()
+  acceptingRequests = new Set(),
+  isEligibleToDonate = true,
 }: RequestActionButtonsProps) {
   const isAlreadyAccepted = acceptedRequests.has(request.id)
   const isAccepting = acceptingRequests.has(request.id)
@@ -40,13 +42,17 @@ export default function RequestActionButtons({
 
   return (
     <div className="flex gap-2 mt-3">
-      <NButton 
+      <NButton
         onClick={handleAccept}
-        disabled={isAccepting || isAlreadyAccepted || isOwnRequest || !user}
+        disabled={isAccepting || isAlreadyAccepted || isOwnRequest || !user || !isEligibleToDonate}
         className={`flex-1 ${
-          isAlreadyAccepted ? 'bg-green-200 text-green-800' : 
-          isOwnRequest ? 'bg-gray-100 text-gray-500' :
-          'bg-red-50 text-[#e74c3c] hover:bg-red-100'
+          isAlreadyAccepted
+            ? "bg-green-200 text-green-800"
+            : isOwnRequest
+            ? "bg-gray-100 text-gray-500"
+            : !isEligibleToDonate
+            ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+            : "bg-red-50 text-[#e74c3c] hover:bg-red-100"
         }`}
       >
         {isAccepting ? (
@@ -63,6 +69,8 @@ export default function RequestActionButtons({
           "Your Request"
         ) : !user ? (
           "Login to Help"
+        ) : !isEligibleToDonate ? (
+            "Not Eligible"
         ) : (
           <>
             <Heart className="w-4 h-4 mr-1" />
@@ -70,8 +78,8 @@ export default function RequestActionButtons({
           </>
         )}
       </NButton>
-      
-      <NButton 
+
+      <NButton
         onClick={handleShare}
         className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100"
       >
