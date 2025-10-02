@@ -1,12 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
 import { NButton, NCard, NModal, NField, NBadge, NAlert, NList, NListItem } from "@/components/nui"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { MapPin, BellRing, Activity, ShieldCheck, ShieldOff } from "lucide-react"
 import { kmDistance } from "@/lib/compatibility"
-import { User } from "@supabase/supabase-js"
-import { differenceInDays, formatDistanceToNow, addMonths } from "date-fns"
+import { formatDistanceToNow, addMonths } from "date-fns"
 import { toast } from "sonner"
 import RequestActionButtons from "@/components/RequestActionButtons"
 
@@ -23,28 +21,23 @@ type RequestRow = {
   patient_age?: number
   hospital?: string
   contact?: string
-  matches_count?: number
+  requester_id: string
 }
 
 type BloodType = "A" | "B" | "AB" | "O"
 type Rh = "+" | "-"
 type Urgency = "low" | "medium" | "high" | "critical"
 
-type BloodType = "A" | "B" | "AB" | "O"
-type Rh = "+" | "-"
-type Urgency = "low" | "medium" | "high" | "critical"
-
 export default function DashboardPage() {
-  const supabase = getSupabaseBrowserClient()
-  const [user, setUser] = useState<User | null>(null)
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true) // Start with loading true
   const [requests, setRequests] = useState<RequestRow[]>([])
   const [isEligibleToDonate, setIsEligibleToDonate] = useState(true)
   const [nextDonationDate, setNextDonationDate] = useState<Date | null>(null)
   const [isSosModalOpen, setIsSosModalOpen] = useState(false)
-  const [acceptingRequests, setAcceptingRequests] = useState<Set<string>>(new Set())
-  const [acceptedRequests, setAcceptedRequests] = useState<Set<string>>(new Set())
+  const [userId, setUserId] = useState<string | null>(null)
+  const [submittingRequestId, setSubmittingRequestId] = useState<string | null>(null)
+
   const [sosForm, setSosForm] = useState({
     bloodType: "A" as BloodType,
     rh: "+" as Rh,
@@ -56,57 +49,72 @@ export default function DashboardPage() {
     contact: "",
   })
 
+  const loadNearby = useCallback(async () => {
+    setLoading(true)
+    try {
+        const res = await fetch("/api/requests")
+        if (!res.ok) throw new Error("Failed to fetch requests")
+        const data = (await res.json()) as RequestRow[]
+        setRequests(data)
+    } catch(e) {
+        toast.error("Could not load nearby requests.")
+    } finally {
+        setLoading(false)
+    }
+  }, [])
+
+  const fetchInitialData = useCallback(async () => {
+    try {
+        const profileRes = await fetch("/api/profile")
+        if (!profileRes.ok) return
+        const profile = await profileRes.json()
+
+        setUserId(profile.id)
+
+        if (profile.last_donation_date) {
+            const lastDonation = new Date(profile.last_donation_date)
+            const nextEligibleDate = addMonths(lastDonation, 6)
+            setNextDonationDate(nextEligibleDate)
+            setIsEligibleToDonate(new Date() > nextEligibleDate)
+        } else {
+            setIsEligibleToDonate(true)
+        }
+
+        // Here you would fetch requests the user has already accepted
+        // const acceptedRes = await fetch("/api/user/accepted-requests");
+        // const acceptedIds = await acceptedRes.json();
+        // setAcceptedRequests(new Set(acceptedIds));
+
+    } catch(e) {
+        console.error("Could not fetch initial data", e)
+        toast.error("Could not load your user data.")
+    }
+  }, [])
+
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
       (pos) => setLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => setLoc(null),
       { enableHighAccuracy: true },
     )
-
-    const getUserData = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session) {
-        return
-      }
-      setUser(session.user)
-
-      const { data: profile } = await supabase.from("profiles").select("last_donation_date, blood_type, rh").eq("id", session.user.id).single()
-      if (profile) {
-        if (profile.last_donation_date) {
-          const lastDonation = new Date(profile.last_donation_date)
-          const nextEligibleDate = addMonths(lastDonation, 6)
-          setNextDonationDate(nextEligibleDate)
-          setIsEligibleToDonate(new Date() > nextEligibleDate)
-        } else {
-          setIsEligibleToDonate(true)
-        }
-
-        if (profile.blood_type && profile.rh) {
-          setSosForm((prev) => ({ ...prev, bloodType: profile.blood_type, rh: profile.rh }))
-        }
-      }
-    }
-
-    getUserData()
-  }, [supabase])
+    loadNearby()
+    fetchInitialData()
+  }, [loadNearby, fetchInitialData])
 
   async function handleSendRequest() {
-    if (!loc || !user) return
+    if (!loc) return
     setLoading(true)
     try {
       const res = await fetch("/api/requests", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requester_id: user.id,
           blood_type: sosForm.bloodType,
           rh: sosForm.rh,
           urgency: sosForm.urgency,
           units_needed: sosForm.units,
           location_lat: loc.lat,
           location_lng: loc.lng,
-          radius_km: 10, // This can be made dynamic later
           patient_name: sosForm.patientName,
           patient_age: sosForm.patientAge,
           hospital: sosForm.hospital,
@@ -118,79 +126,40 @@ export default function DashboardPage() {
       await loadNearby()
     } catch (e) {
       toast.error("Failed to send emergency request.")
-      console.log("[v0] SOS error", e)
     } finally {
       setLoading(false)
       setIsSosModalOpen(false)
     }
   }
 
-  async function loadNearby() {
-    const res = await fetch("/api/requests")
-    if (!res.ok) return
-    const data = (await res.json()) as RequestRow[]
-    setRequests(data)
-  }
-
-  // Check which requests the user has already accepted
-  useEffect(() => {
-    if (!user) return
-    const checkAcceptedRequests = async () => {
-      const { data } = await supabase
-        .from("request_matches")
-        .select("request_id")
-        .eq("donor_id", user.id)
-        .eq("status", "accepted")
-      
-      if (data) {
-        setAcceptedRequests(new Set(data.map(m => m.request_id)))
-      }
-    }
-    checkAcceptedRequests()
-  }, [user, supabase])
-
   const handleAcceptRequest = async (requestId: string) => {
-    if (!user) {
-      toast.error("Please login to help with requests")
-      return
-    }
-
     if (!isEligibleToDonate) {
         toast.warning("You are not eligible to donate yet.", {
-            description: `You can donate again after ${nextDonationDate ? formatDistanceToNow(nextDonationDate, { addSuffix: true }) : 'your waiting period'}. You can still share requests.`
+            description: `You can donate again ${nextDonationDate ? formatDistanceToNow(nextDonationDate, { addSuffix: true }) : 'soon'}. You can still share requests.`
         })
         return
     }
-
-    setAcceptingRequests(prev => new Set(prev).add(requestId))
     
+    setSubmittingRequestId(requestId)
     try {
-      const response = await fetch(`/api/requests/${requestId}/accept`, {
-        method: 'POST',
-      })
-      
+      const response = await fetch(`/api/requests/${requestId}/accept`, { method: 'POST' })
       if (response.ok) {
-        toast.success("Request accepted! Requester has been notified with your details.")
-        setAcceptedRequests(prev => new Set(prev).add(requestId))
-        await loadNearby() // Refresh the requests
+        toast.success("Request accepted! The requester has been notified.")
+        // The request list should be re-fetched to show the new status
+        await loadNearby()
       } else {
         const error = await response.json()
         toast.error(error.error || "Failed to accept request")
       }
     } catch (error) {
-      toast.error("Network error occurred")
+      toast.error("An error occurred while accepting the request.")
     } finally {
-      setAcceptingRequests(prev => {
-        const newSet = new Set(prev)
-        newSet.delete(requestId)
-        return newSet
-      })
+        setSubmittingRequestId(null)
     }
   }
 
   const handleShareRequest = async (request: any) => {
     try {
-      // Get shareable data from API
       const response = await fetch(`/api/requests/${request.id}/share`)
       const shareData = await response.json()
       
@@ -199,7 +168,6 @@ export default function DashboardPage() {
         return
       }
       
-      // Track the share action
       await fetch(`/api/requests/${request.id}/share`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -207,37 +175,17 @@ export default function DashboardPage() {
       })
       
       if (navigator.share) {
-        // Use native share API if available (mobile)
-        await navigator.share({
-          title: shareData.title,
-          text: shareData.message,
-          url: shareData.url
-        })
+        await navigator.share({ title: shareData.title, text: shareData.message, url: shareData.url })
         toast.success("Request shared successfully!")
       } else {
-        // Fallback: Copy to clipboard
-        const fullMessage = `${shareData.message}\n${shareData.url}`
-        await navigator.clipboard.writeText(fullMessage)
+        await navigator.clipboard.writeText(`${shareData.message}\n${shareData.url}`)
         toast.success("Share message copied to clipboard!")
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return // User cancelled the share dialog
-      }
+      if (error instanceof Error && error.name === 'AbortError') return
       toast.error("Failed to share request")
     }
   }
-
-  useEffect(() => {
-    loadNearby()
-    const channel = supabase
-      .channel("requests")
-      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_requests" }, loadNearby)
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase])
 
   const requestsWithDistance = useMemo(() => {
     if (!loc) return requests
@@ -263,7 +211,6 @@ export default function DashboardPage() {
             Request Blood
           </NButton>
 
-          {/* Donation Eligibility Status */}
           <NCard>
             {isEligibleToDonate ? (
                 <div className="flex items-center text-green-600">
@@ -287,7 +234,6 @@ export default function DashboardPage() {
             )}
           </NCard>
 
-          {/* Nearby Emergency Requests */}
           <NCard>
             <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
                 <Activity className="w-6 h-6 mr-3 text-red-500" />
@@ -330,12 +276,13 @@ export default function DashboardPage() {
                     </div>
                     <RequestActionButtons
                       request={r}
-                      user={user}
                       onAccept={handleAcceptRequest}
                       onShare={handleShareRequest}
-                      acceptedRequests={acceptedRequests}
-                      acceptingRequests={acceptingRequests}
                       isEligibleToDonate={isEligibleToDonate}
+                      isAccepting={submittingRequestId === r.id}
+                      // In a real app, isAccepted would come from the request's status or a separate user data fetch
+                      isAccepted={r.status.toLowerCase() === 'accepted'}
+                      isOwnRequest={!!userId && userId === r.requester_id}
                     />
                   </NListItem>
                 ))}

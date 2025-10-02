@@ -1,22 +1,23 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { User as SupabaseUser } from "@supabase/supabase-js"
-import { Camera, Edit, User, Mail, Phone, MapPin, Save, X, Heart, TrendingUp } from "lucide-react"
+import { Camera, Edit, User, Mail, Phone, MapPin, Save, X, Heart, TrendingUp, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 
 type Profile = {
   name: string | null
   phone: string | null
   location: string | null
   avatar_url: string | null
+  email: string | null
+  stats: {
+    donations: number
+    livesSaved: number
+  }
 }
 
 export default function ProfilePage() {
-  const supabase = getSupabaseBrowserClient()
-  const [user, setUser] = useState<SupabaseUser | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [stats, setStats] = useState({ donations: 0, livesSaved: 0 })
   const [loading, setLoading] = useState(true)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
@@ -28,57 +29,30 @@ export default function ProfilePage() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("name, phone, location, avatar_url")
-      .eq("id", userId)
-      .single()
-
-    if (error && error.code !== "PGRST116") {
-      console.error("Error fetching profile:", error)
-    }
-
-    if (data) {
+  const fetchProfile = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch("/api/profile")
+      if (!response.ok) {
+        throw new Error("Failed to fetch profile")
+      }
+      const data = await response.json()
       setProfile(data)
       setEditForm({
         name: data.name || "",
         phone: data.phone || "",
         location: data.location || "",
       })
-    }
-  }, [supabase])
-
-  const fetchStats = useCallback(async (userId: string) => {
-    const { data: donations, error } = await supabase
-      .from("donations")
-      .select("id")
-      .eq("donor_id", userId)
-
-    if (error) {
-        console.error("Error fetching donation stats:", error)
-    }
-
-    if (donations) {
-        setStats({ donations: donations.length, livesSaved: donations.length * 3 })
-    }
-  }, [supabase])
-
-  useEffect(() => {
-    const getUserData = async () => {
-      setLoading(true)
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        setUser(session.user)
-        await Promise.all([
-            fetchProfile(session.user.id),
-            fetchStats(session.user.id)
-        ])
-      }
+    } catch (error) {
+      toast.error("Could not load your profile. Please try again later.")
+    } finally {
       setLoading(false)
     }
-    getUserData()
-  }, [supabase, fetchProfile, fetchStats])
+  }, [])
+
+  useEffect(() => {
+    fetchProfile()
+  }, [fetchProfile])
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -90,49 +64,36 @@ export default function ProfilePage() {
   }
 
   const handleUpdateProfile = async () => {
-    if (!user) return
-
     setLoading(true)
-    let avatar_url = profile?.avatar_url
-
+    const formData = new FormData()
+    formData.append("name", editForm.name)
+    formData.append("phone", editForm.phone)
+    formData.append("location", editForm.location)
     if (avatarFile) {
-        const fileExt = avatarFile.name.split('.').pop()
-        const fileName = `${user.id}-${Date.now()}.${fileExt}`
-        const { data, error } = await supabase.storage
-            .from("avatars")
-            .upload(fileName, avatarFile, {
-                cacheControl: '3600',
-                upsert: true
-            })
-
-        if (error) {
-            console.error("Error uploading avatar:", error)
-        } else {
-            const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(data.path)
-            avatar_url = publicUrl
-        }
+      formData.append("avatar", avatarFile)
     }
 
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({
-        name: editForm.name,
-        phone: editForm.phone,
-        location: editForm.location,
-        avatar_url: avatar_url,
-        updated_at: new Date().toISOString(),
+    try {
+      const response = await fetch("/api/profile", {
+        method: "POST",
+        body: formData,
       })
-      .eq("id", user.id)
 
-    if (profileError) {
-      console.error("Error updating profile:", profileError)
-    } else {
-      await fetchProfile(user.id)
+      if (!response.ok) {
+        throw new Error("Failed to update profile")
+      }
+
+      toast.success("Profile updated successfully!")
+      await fetchProfile() // Re-fetch profile to show updated data
       setIsEditModalOpen(false)
       setAvatarFile(null)
       setAvatarPreview(null)
+
+    } catch (error) {
+      toast.error("Could not update your profile. Please try again.")
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   if (loading && !isEditModalOpen) {
@@ -140,6 +101,18 @@ export default function ProfilePage() {
       <div className="flex justify-center items-center h-screen bg-gray-50">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
       </div>
+    )
+  }
+
+  if (!profile) {
+    return (
+        <div className="flex flex-col justify-center items-center h-screen bg-gray-50 text-center">
+            <h2 className="text-xl font-semibold text-gray-700">Could not load profile</h2>
+            <p className="text-gray-500 mb-4">There was an issue fetching your data.</p>
+            <button onClick={fetchProfile} className="px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600">
+                Try Again
+            </button>
+        </div>
     )
   }
 
@@ -151,14 +124,14 @@ export default function ProfilePage() {
           <div className="flex flex-col items-center sm:flex-row sm:items-start text-center sm:text-left">
             <div className="relative mb-4 sm:mb-0 sm:mr-6">
               <img
-                src={profile?.avatar_url || `https://ui-avatars.com/api/?name=${profile?.name || user?.email}&background=e74c3c&color=fff&size=128`}
+                src={profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.name || profile.email}&background=e74c3c&color=fff&size=128`}
                 alt="Profile"
                 className="w-32 h-32 rounded-full object-cover border-4 border-red-500"
               />
             </div>
             <div className="flex-grow">
-              <h1 className="text-3xl font-bold text-gray-800">{profile?.name || "Update Your Name"}</h1>
-              <p className="text-gray-500">{user?.email}</p>
+              <h1 className="text-3xl font-bold text-gray-800">{profile.name || "Update Your Name"}</h1>
+              <p className="text-gray-500">{profile.email}</p>
               <button
                 onClick={() => setIsEditModalOpen(true)}
                 className="mt-4 inline-flex items-center px-4 py-2 bg-red-500 text-white font-semibold rounded-lg shadow-sm hover:bg-red-600 transition-colors"
@@ -174,14 +147,14 @@ export default function ProfilePage() {
             <div className="bg-red-50 p-4 rounded-lg flex items-center">
                 <Heart className="w-8 h-8 text-red-500 mr-4"/>
                 <div>
-                    <div className="text-2xl font-bold text-gray-800">{stats.livesSaved}</div>
+                    <div className="text-2xl font-bold text-gray-800">{profile.stats.livesSaved}</div>
                     <div className="text-sm text-gray-600">Lives Saved</div>
                 </div>
             </div>
             <div className="bg-blue-50 p-4 rounded-lg flex items-center">
                 <TrendingUp className="w-8 h-8 text-blue-500 mr-4"/>
                 <div>
-                    <div className="text-2xl font-bold text-gray-800">{stats.donations}</div>
+                    <div className="text-2xl font-bold text-gray-800">{profile.stats.donations}</div>
                     <div className="text-sm text-gray-600">Total Donations</div>
                 </div>
             </div>
@@ -195,21 +168,21 @@ export default function ProfilePage() {
                     <Mail className="w-5 h-5 text-gray-400 mr-4"/>
                     <div>
                         <label className="text-sm text-gray-500">Email</label>
-                        <p className="font-medium text-gray-800">{user?.email}</p>
+                        <p className="font-medium text-gray-800">{profile.email}</p>
                     </div>
                 </div>
                 <div className="flex items-center">
                     <Phone className="w-5 h-5 text-gray-400 mr-4"/>
                     <div>
                         <label className="text-sm text-gray-500">Phone</label>
-                        <p className="font-medium text-gray-800">{profile?.phone || "Not provided"}</p>
+                        <p className="font-medium text-gray-800">{profile.phone || "Not provided"}</p>
                     </div>
                 </div>
                 <div className="flex items-center">
                     <MapPin className="w-5 h-5 text-gray-400 mr-4"/>
                     <div>
                         <label className="text-sm text-gray-500">Location</label>
-                        <p className="font-medium text-gray-800">{profile?.location || "Not provided"}</p>
+                        <p className="font-medium text-gray-800">{profile.location || "Not provided"}</p>
                     </div>
                 </div>
             </div>
@@ -226,7 +199,7 @@ export default function ProfilePage() {
 
             <div className="flex justify-center mb-6">
                 <div className="relative">
-                    <img src={avatarPreview || profile?.avatar_url || `https://ui-avatars.com/api/?name=${profile?.name || user?.email}&background=e74c3c&color=fff&size=128`} alt="Avatar Preview" className="w-32 h-32 rounded-full object-cover"/>
+                    <img src={avatarPreview || profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.name || profile.email}&background=e74c3c&color=fff&size=128`} alt="Avatar Preview" className="w-32 h-32 rounded-full object-cover"/>
                     <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-red-500 text-white p-2 rounded-full cursor-pointer hover:bg-red-600">
                         <Camera className="w-5 h-5"/>
                         <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange}/>
@@ -246,8 +219,8 @@ export default function ProfilePage() {
                 Cancel
               </button>
               <button onClick={handleUpdateProfile} disabled={loading} className="px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 disabled:bg-red-300">
-                <Save className="w-4 h-4 inline-block mr-1"/>
-                {loading ? "Saving..." : "Save"}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-4 h-4 inline-block mr-1"/>}
+                {loading ? "" : "Save"}
               </button>
             </div>
           </div>

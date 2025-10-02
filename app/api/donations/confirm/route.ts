@@ -1,87 +1,70 @@
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
-import { getSupabaseServerClient } from "@/lib/supabase/server"
 
-export async function POST(req: Request) {
-  const supabase = getSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+export const dynamic = "force-dynamic"
 
+// This endpoint would typically be protected and only accessible by hospital staff.
+// For now, it assumes the presence of a valid token in the request body.
+export async function POST(request: Request) {
+  const supabase = createRouteHandlerClient({ cookies })
   try {
-    const { donation_id, token } = await req.json()
+    // In a real app, you'd have a separate authentication flow for hospital staff.
+    // We'll proceed assuming the request is authorized if it contains the correct token.
+    const { donation_id, token } = await request.json()
 
     if (!donation_id || !token) {
-      return NextResponse.json({ error: "Missing donation_id or token" }, { status: 400 })
+        return new NextResponse(JSON.stringify({ error: "Missing donation_id or token" }), { status: 400 })
     }
 
-    // Verify donation exists and token matches
-    const { data: donation, error } = await supabase
-      .from("donations")
-      .select("*, token_expires_at")
-      .eq("id", donation_id)
-      .eq("confirmation_token", token)
-      .eq("donor_id", user.id) // Ensure user is the actual donor
-      .single()
+    // 1. Fetch the donation to verify the token and get the donor ID
+    const { data: donation, error: donationError } = await supabase
+        .from("donations")
+        .select("id, donor_id, verification_token, status") // Assuming a 'verification_token' column exists
+        .eq("id", donation_id)
+        .single()
 
-    if (error || !donation) {
-      return NextResponse.json({ error: "Invalid donation or token" }, { status: 400 })
+    if (donationError || !donation) {
+        return new NextResponse(JSON.stringify({ error: "Donation not found" }), { status: 404 })
     }
 
-    // Check if already confirmed
-    if (donation.confirmed_at) {
-      return NextResponse.json({ error: "Donation already confirmed" }, { status: 400 })
+    // This is a simplified token check. In a real app, use a more secure method.
+    if (donation.verification_token !== token) {
+        return new NextResponse(JSON.stringify({ error: "Invalid verification token" }), { status: 403 })
     }
 
-    // Check if token expired
-    if (donation.token_expires_at && new Date() > new Date(donation.token_expires_at)) {
-      return NextResponse.json({ error: "QR code has expired" }, { status: 400 })
+    if (donation.status === 'completed') {
+        return new NextResponse(JSON.stringify({ error: "This donation has already been confirmed." }), { status: 409 })
     }
 
-    // Update donation as confirmed
-    const { data: confirmed, error: updateError } = await supabase
-      .from("donations")
-      .update({
-        confirmed_at: new Date().toISOString(),
-        confirmed_by: user.id,
-        status: 'verified'
-      })
-      .eq("id", donation_id)
-      .select()
-      .single()
+    // 2. Update the donation status to 'completed'
+    const { error: updateDonationError } = await supabase
+        .from("donations")
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .eq("id", donation_id)
 
-    if (updateError) {
-      return NextResponse.json({ error: "Failed to confirm donation" }, { status: 500 })
-    }
+    if (updateDonationError) throw updateDonationError
 
-    // Update profile last donation date
-    await supabase
-      .from("profiles")
-      .update({ last_donation_date: donation.donated_at })
-      .eq("id", user.id)
+    // 3. Update the donor's last_donation_date in their profile
+    const { error: updateProfileError } = await supabase
+        .from("profiles")
+        .update({ last_donation_date: new Date().toISOString() })
+        .eq("id", donation.donor_id)
 
-    // Create notification for successful confirmation
-    await supabase
-      .from("notifications")
-      .insert({
-        user_id: user.id,
-        type: "donation_confirmed",
-        title: "Donation Confirmed! 🎉",
-        message: "Your blood donation has been verified. Thank you for saving lives!",
-        data: { donation_id: donation_id }
-      })
+    if (updateProfileError) throw updateProfileError
 
-    // Calculate estimated lives saved based on volume
-    const livesSaved = donation.volume_ml ? Math.floor(donation.volume_ml / 150) : 3
+    // The number of lives saved is a fixed value (3) per donation
+    const lives_saved = 3;
 
     return NextResponse.json({
-      message: "Donation confirmed successfully!",
-      donation: confirmed,
-      lives_saved: livesSaved
+        message: "Donation confirmed successfully!",
+        lives_saved
     })
-  } catch (error) {
-    console.error('Donation confirmation error:', error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+
+  } catch (error: any) {
+    return new NextResponse(
+      JSON.stringify({ error: "There was an error confirming the donation.", details: error.message }),
+      { status: 500 },
+    )
   }
 }
