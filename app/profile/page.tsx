@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Edit, User, Mail, Phone, MapPin, Save, X, Heart, TrendingUp, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { useAuth } from "@/lib/hooks/useAuth"
+import { useSupabase } from "@/lib/supabase/provider"
 
 type Profile = {
   id: string
@@ -17,7 +17,7 @@ type Profile = {
 }
 
 export default function ProfilePage() {
-  const { user, isLoading: isAuthLoading } = useAuth()
+  const { session } = useSupabase()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -49,10 +49,12 @@ export default function ProfilePage() {
   }, [])
 
   useEffect(() => {
-    if (user) {
+    if (session) {
       fetchProfile()
+    } else {
+      setIsLoadingData(false)
     }
-  }, [user, fetchProfile])
+  }, [session, fetchProfile])
 
   const handleUpdateProfile = async () => {
     setIsUpdating(true)
@@ -81,7 +83,7 @@ export default function ProfilePage() {
     }
   }
 
-  if (isAuthLoading || (isLoadingData && !profile)) {
+  if (isLoadingData) {
     return (
       <div className="flex justify-center items-center h-screen bg-gray-50">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>

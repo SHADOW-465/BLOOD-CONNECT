@@ -1,11 +1,32 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
+function createSupabaseServerClient() {
+  const cookieStore = cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          cookieStore.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          cookieStore.set({ name, value: "", ...options })
+        },
+      },
+    }
+  )
+}
+
 export async function GET() {
-  const supabase = createRouteHandlerClient({ cookies })
+  const supabase = createSupabaseServerClient()
   try {
     const {
       data: { user },
@@ -15,7 +36,6 @@ export async function GET() {
       return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
     }
 
-    // Fetch profile details - selecting only columns that exist in the schema
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id, name, phone, last_donation_date, location_lat, location_lng")
@@ -26,7 +46,6 @@ export async function GET() {
       throw profileError
     }
 
-    // Fetch donation stats
     const { data: donations, error: donationsError } = await supabase
         .from("donations")
         .select("id", { count: 'exact' })
@@ -55,7 +74,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = createSupabaseServerClient()
     try {
         const {
             data: { user },
@@ -68,8 +87,6 @@ export async function POST(request: Request) {
         const formData = await request.formData()
         const name = formData.get("name") as string
         const phone = formData.get("phone") as string
-        // Note: Location and Avatar logic removed to align with the current DB schema.
-        // This would be re-introduced after a schema migration.
 
         const updates: { name: string; phone: string; updated_at: string; } = {
             name,
