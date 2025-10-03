@@ -32,6 +32,7 @@ type Urgency = "low" | "medium" | "high" | "critical"
 export default function DashboardPage() {
   const { session } = useSupabase()
   const user = session?.user
+  const [isMounted, setIsMounted] = useState(false)
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [requests, setRequests] = useState<RequestRow[]>([])
@@ -86,6 +87,7 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
+    setIsMounted(true)
     navigator.geolocation?.getCurrentPosition(
       (pos) => setLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => setLoc(null),
@@ -195,6 +197,14 @@ export default function DashboardPage() {
       }))
       .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9))
   }, [requests, loc])
+
+  if (!isMounted) {
+    return (
+      <div className="flex justify-center items-center h-screen bg-gray-50">
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
+      </div>
+    );
+  }
 
   return (
     <>

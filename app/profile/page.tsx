@@ -18,6 +18,7 @@ type Profile = {
 
 export default function ProfilePage() {
   const { session } = useSupabase()
+  const [isMounted, setIsMounted] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -49,6 +50,7 @@ export default function ProfilePage() {
   }, [])
 
   useEffect(() => {
+    setIsMounted(true)
     if (session) {
       fetchProfile()
     } else {
@@ -83,7 +85,7 @@ export default function ProfilePage() {
     }
   }
 
-  if (isLoadingData) {
+  if (!isMounted || isLoadingData) {
     return (
       <div className="flex justify-center items-center h-screen bg-gray-50">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
