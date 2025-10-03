@@ -13,6 +13,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        'primary-red': '#D92E2E',
+        'dark-grey': '#1C1C1E',
+        'medium-grey': '#8A8A8E',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {
