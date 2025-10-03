@@ -4,18 +4,25 @@ import { GeistMono } from 'geist/font/mono'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import { Toaster } from 'sonner'
+import SupabaseProvider from '@/lib/supabase/provider'
+import { getSupabaseServerClient } from '@/lib/supabase/server'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'Uyir Thuli',
+  description: 'Connecting blood donors with those in need.',
   generator: 'v0.app',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const supabase = getSupabaseServerClient()
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
   return (
     <html lang="en">
       <head>
@@ -28,7 +35,9 @@ html {
         `}</style>
       </head>
       <body>
-        {children}
+        <SupabaseProvider session={session}>
+          {children}
+        </SupabaseProvider>
         <Toaster position="top-right" richColors />
         <Analytics />
       </body>

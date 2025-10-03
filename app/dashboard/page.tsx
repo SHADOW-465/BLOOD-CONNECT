@@ -7,7 +7,7 @@ import { kmDistance } from "@/lib/compatibility"
 import { formatDistanceToNow, addMonths } from "date-fns"
 import { toast } from "sonner"
 import RequestActionButtons from "@/components/RequestActionButtons"
-import { useAuth } from "@/lib/hooks/useAuth"
+import { useSupabase } from "@/lib/supabase/provider"
 
 type RequestRow = {
   id: string
@@ -30,7 +30,8 @@ type Rh = "+" | "-"
 type Urgency = "low" | "medium" | "high" | "critical"
 
 export default function DashboardPage() {
-  const { user, isLoading: isAuthLoading } = useAuth()
+  const { session } = useSupabase()
+  const user = session?.user
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [requests, setRequests] = useState<RequestRow[]>([])
@@ -90,11 +91,14 @@ export default function DashboardPage() {
       () => setLoc(null),
       { enableHighAccuracy: true },
     )
-    if(user) {
+    if(session) {
       loadNearby()
       fetchInitialData()
+    } else {
+      setIsLoadingData(false)
+      setRequests([])
     }
-  }, [user, loadNearby, fetchInitialData])
+  }, [session, loadNearby, fetchInitialData])
 
   async function handleSendRequest() {
     if (!loc) return
@@ -191,14 +195,6 @@ export default function DashboardPage() {
       }))
       .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9))
   }, [requests, loc])
-
-  if (isAuthLoading) {
-    return (
-      <div className="flex justify-center items-center h-screen bg-gray-50">
-        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
-      </div>
-    )
-  }
 
   return (
     <>

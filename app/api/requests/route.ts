@@ -1,12 +1,33 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
+function createSupabaseServerClient() {
+  const cookieStore = cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          cookieStore.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          cookieStore.set({ name, value: "", ...options })
+        },
+      },
+    }
+  )
+}
+
 // Fetch all active emergency requests
 export async function GET() {
-  const supabase = createRouteHandlerClient({ cookies })
+  const supabase = createSupabaseServerClient()
   try {
     const { data, error } = await supabase
       .from("emergency_requests")
@@ -25,7 +46,7 @@ export async function GET() {
         hospital,
         contact
       `)
-      .eq("status", "open") // Corrected status to 'open' to match schema
+      .eq("status", "open")
       .order("created_at", { ascending: false })
 
     if (error) throw error
@@ -41,7 +62,7 @@ export async function GET() {
 
 // Create a new emergency request
 export async function POST(request: Request) {
-  const supabase = createRouteHandlerClient({ cookies })
+  const supabase = createSupabaseServerClient()
   try {
     const {
       data: { user },
@@ -52,8 +73,6 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-
-    // Create a timestamp for 24 hours from now for the expires_at field
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 
     const { data, error } = await supabase
@@ -70,11 +89,11 @@ export async function POST(request: Request) {
         patient_age: body.patient_age,
         hospital: body.hospital,
         contact: body.contact,
-        status: 'open', // Corrected status to 'open' to match schema
+        status: 'open',
         expires_at: expiresAt,
       })
       .select()
-      .single() // Expect a single record to be returned
+      .single()
 
     if (error) throw error
 

@@ -1,15 +1,36 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
+
+function createSupabaseServerClient() {
+  const cookieStore = cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          cookieStore.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          cookieStore.set({ name, value: "", ...options })
+        },
+      },
+    }
+  )
+}
 
 // Generate a shareable message for a request
 export async function GET(
   request: Request,
   { params }: { params: { id: string } },
 ) {
-  const supabase = createRouteHandlerClient({ cookies })
+  const supabase = createSupabaseServerClient()
   try {
     const requestId = params.id
     const { data: requestDetails, error } = await supabase
@@ -46,32 +67,21 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } },
 ) {
-  const supabase = createRouteHandlerClient({ cookies })
+  const supabase = createSupabaseServerClient()
   try {
     const {
         data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) {
-        // Allow anonymous shares to be tracked, but associate with user if logged in
-        console.log("Anonymous share action tracked for request:", params.id)
-    }
-
     const body = await request.json()
 
-    // Here you would insert into a 'shares' table or increment a counter
-    // For now, we'll just log it to demonstrate the endpoint is working.
-    console.log({
-        message: "Share action tracked",
-        requestId: params.id,
-        userId: user?.id || 'anonymous',
-        platform: body.platform, // e.g., 'native', 'clipboard'
-        timestamp: new Date().toISOString()
+    const { error } = await supabase.from('request_shares').insert({
+      request_id: params.id,
+      shared_by: user?.id, // Can be null for anonymous shares
+      platform: body.platform
     })
 
-    // In a real implementation, you would have a table like 'request_shares'
-    // and do an insert here.
-    // await supabase.from('request_shares').insert({ request_id: params.id, shared_by_id: user?.id, platform: body.platform })
+    if (error) throw error
 
     return NextResponse.json({ message: "Share tracked successfully" })
   } catch (error: any) {

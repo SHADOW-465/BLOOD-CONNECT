@@ -1,26 +1,43 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
+function createSupabaseServerClient() {
+  const cookieStore = cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          cookieStore.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          cookieStore.set({ name, value: "", ...options })
+        },
+      },
+    }
+  )
+}
+
 // This endpoint would typically be protected and only accessible by hospital staff.
-// For now, it assumes the presence of a valid token in the request body.
 export async function POST(request: Request) {
-  const supabase = createRouteHandlerClient({ cookies })
+  const supabase = createSupabaseServerClient()
   try {
-    // In a real app, you'd have a separate authentication flow for hospital staff.
-    // We'll proceed assuming the request is authorized if it contains the correct token.
     const { donation_id, token } = await request.json()
 
     if (!donation_id || !token) {
         return new NextResponse(JSON.stringify({ error: "Missing donation_id or token" }), { status: 400 })
     }
 
-    // 1. Fetch the donation to verify the token and get the donor ID
     const { data: donation, error: donationError } = await supabase
         .from("donations")
-        .select("id, donor_id, verification_token, status") // Assuming a 'verification_token' column exists
+        .select("id, donor_id, confirmation_token, status")
         .eq("id", donation_id)
         .single()
 
@@ -28,24 +45,21 @@ export async function POST(request: Request) {
         return new NextResponse(JSON.stringify({ error: "Donation not found" }), { status: 404 })
     }
 
-    // This is a simplified token check. In a real app, use a more secure method.
-    if (donation.verification_token !== token) {
-        return new NextResponse(JSON.stringify({ error: "Invalid verification token" }), { status: 403 })
+    if (donation.confirmation_token !== token) {
+        return new NextResponse(JSON.stringify({ error: "Invalid confirmation token" }), { status: 403 })
     }
 
-    if (donation.status === 'completed') {
-        return new NextResponse(JSON.stringify({ error: "This donation has already been confirmed." }), { status: 409 })
+    if (donation.status === 'verified') {
+        return new NextResponse(JSON.stringify({ error: "This donation has already been verified." }), { status: 409 })
     }
 
-    // 2. Update the donation status to 'completed'
     const { error: updateDonationError } = await supabase
         .from("donations")
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .update({ status: 'verified', confirmed_at: new Date().toISOString() })
         .eq("id", donation_id)
 
     if (updateDonationError) throw updateDonationError
 
-    // 3. Update the donor's last_donation_date in their profile
     const { error: updateProfileError } = await supabase
         .from("profiles")
         .update({ last_donation_date: new Date().toISOString() })
@@ -53,7 +67,6 @@ export async function POST(request: Request) {
 
     if (updateProfileError) throw updateProfileError
 
-    // The number of lives saved is a fixed value (3) per donation
     const lives_saved = 3;
 
     return NextResponse.json({
