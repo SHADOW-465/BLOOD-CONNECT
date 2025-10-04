@@ -3,18 +3,20 @@ import { createContext, useContext, useState, ReactNode, useCallback, Dispatch, 
 
 type Location = { lat: number; lng: number } | null;
 
-type DashboardContextType = {
+type AppContextType = {
   isSosModalOpen: boolean;
   setIsSosModalOpen: Dispatch<SetStateAction<boolean>>;
   loc: Location;
   setLoc: Dispatch<SetStateAction<Location>>;
+  // Although named 'loadNearby', this can be a generic data refresh trigger.
+  // A component can register its own data-fetching function to be called by this.
   loadNearby: () => Promise<void>;
   registerLoadNearby: (fn: () => Promise<void>) => void;
 };
 
-const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
+const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const DashboardProvider = ({ children }: { children: ReactNode }) => {
+export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [isSosModalOpen, setIsSosModalOpen] = useState(false);
   const [loc, setLoc] = useState<Location>(null);
   const [loadNearbyCallback, setLoadNearbyCallback] = useState<() => Promise<void>>(() => async () => {});
@@ -28,16 +30,16 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   }, [loadNearbyCallback]);
 
   return (
-    <DashboardContext.Provider value={{ isSosModalOpen, setIsSosModalOpen, loc, setLoc, loadNearby, registerLoadNearby }}>
+    <AppContext.Provider value={{ isSosModalOpen, setIsSosModalOpen, loc, setLoc, loadNearby, registerLoadNearby }}>
       {children}
-    </DashboardContext.Provider>
+    </AppContext.Provider>
   );
 };
 
-export const useDashboard = (): DashboardContextType => {
-  const context = useContext(DashboardContext);
+export const useApp = (): AppContextType => {
+  const context = useContext(AppContext);
   if (context === undefined) {
-    throw new Error('useDashboard must be used within a DashboardProvider');
+    throw new Error('useApp must be used within an AppProvider');
   }
   return context;
 };
