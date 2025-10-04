@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, useCallback } from "react"
-import { useDashboard } from "./DashboardContext"
+import { useApp } from "../AppContext"
 import { kmDistance } from "@/lib/compatibility"
 import { formatDistanceToNow, addMonths, format } from "date-fns"
 import { toast } from "sonner"
@@ -30,7 +30,7 @@ type RequestRow = {
 
 export default function DashboardPage() {
   const { session } = useSupabase()
-  const { loc, setLoc, registerLoadNearby, setIsSosModalOpen } = useDashboard()
+  const { loc, setLoc, registerLoadNearby } = useApp()
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [requests, setRequests] = useState<RequestRow[]>([])
   const [isEligibleToDonate, setIsEligibleToDonate] = useState(true)

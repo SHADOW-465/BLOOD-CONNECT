@@ -4,6 +4,7 @@ import './globals.css'
 import { Toaster } from 'sonner'
 import SupabaseProvider from '@/lib/supabase/provider'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
+import AppLayoutClient from './AppLayoutClient' // Import the new client layout
 
 export const metadata: Metadata = {
   title: 'Uyir Thuli',
@@ -26,7 +27,9 @@ export default async function RootLayout({
       <head />
       <body>
         <SupabaseProvider session={session}>
-          {children}
+          <AppLayoutClient>
+            {children}
+          </AppLayoutClient>
         </SupabaseProvider>
         <Toaster position="top-right" richColors />
         <Analytics />
