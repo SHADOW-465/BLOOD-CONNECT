@@ -307,6 +307,44 @@ export type Database = {
         }
         Relationships: []
       }
+      inventory: {
+        Row: {
+          id: string
+          hospital_id: string | null
+          blood_type: 'O' | 'A' | 'B' | 'AB'
+          rh: '+' | '-'
+          units: number | null
+          expires_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          hospital_id?: string | null
+          blood_type: 'O' | 'A' | 'B' | 'AB'
+          rh: '+' | '-'
+          units?: number | null
+          expires_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          hospital_id?: string | null
+          blood_type?: 'O' | 'A' | 'B' | 'AB'
+          rh?: '+' | '-'
+          units?: number | null
+          expires_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_hospital_id_fkey"
+            columns: ["hospital_id"]
+            isOneToOne: false
+            referencedRelation: "hospitals"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       medical_history: {
         Row: {
           id: string
@@ -389,6 +427,170 @@ export type Database = {
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      donation_calendar: {
+        Row: {
+          id: string
+          donor_id: string | null
+          scheduled_date: string
+          location: string | null
+          status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | null
+          reminder_sent: boolean | null
+          notes: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          donor_id?: string | null
+          scheduled_date: string
+          location?: string | null
+          status?: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | null
+          reminder_sent?: boolean | null
+          notes?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          donor_id?: string | null
+          scheduled_date?: string
+          location?: string | null
+          status?: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | null
+          reminder_sent?: boolean | null
+          notes?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "donation_calendar_donor_id_fkey"
+            columns: ["donor_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      weather_alerts: {
+        Row: {
+          id: string
+          location_lat: number
+          location_lng: number
+          alert_type: 'severe_weather' | 'extreme_heat' | 'extreme_cold' | 'storm'
+          severity: 'low' | 'medium' | 'high' | 'extreme'
+          message: string
+          start_time: string
+          end_time: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          location_lat: number
+          location_lng: number
+          alert_type: 'severe_weather' | 'extreme_heat' | 'extreme_cold' | 'storm'
+          severity: 'low' | 'medium' | 'high' | 'extreme'
+          message: string
+          start_time: string
+          end_time: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          location_lat?: number
+          location_lng?: number
+          alert_type?: 'severe_weather' | 'extreme_heat' | 'extreme_cold' | 'storm'
+          severity?: 'low' | 'medium' | 'high' | 'extreme'
+          message?: string
+          start_time?: string
+          end_time?: string
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      donation_queues: {
+        Row: {
+          id: string
+          location_id: string | null
+          donor_id: string | null
+          check_in_time: string | null
+          estimated_wait_minutes: number | null
+          position: number | null
+          status: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | null
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          location_id?: string | null
+          donor_id?: string | null
+          check_in_time?: string | null
+          estimated_wait_minutes?: number | null
+          position?: number | null
+          status?: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | null
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          location_id?: string | null
+          donor_id?: string | null
+          check_in_time?: string | null
+          estimated_wait_minutes?: number | null
+          position?: number | null
+          status?: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | null
+          completed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "donation_queues_donor_id_fkey"
+            columns: ["donor_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donation_queues_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "hospitals"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      request_shares: {
+        Row: {
+          id: string
+          request_id: string | null
+          shared_by: string | null
+          platform: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          request_id?: string | null
+          shared_by?: string | null
+          platform?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          request_id?: string | null
+          shared_by?: string | null
+          platform?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_shares_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "emergency_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "request_shares_shared_by_fkey"
+            columns: ["shared_by"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -498,4 +700,38 @@ export type TablesUpdate<
       }
       ? U
       : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never

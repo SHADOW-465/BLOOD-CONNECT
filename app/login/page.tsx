@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { Loader2, LogIn, MoveRight, User, Eye, EyeOff, Chrome } from "lucide-react"
@@ -90,6 +90,27 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          // User is already logged in, redirect to dashboard
+          window.location.href = "/dashboard"
+          return
+        }
+      } catch (error) {
+        console.error("Error checking session:", error)
+      } finally {
+        setIsCheckingSession(false)
+      }
+    }
+    
+    checkSession()
+  }, [supabase])
 
   async function signInEmail(e: React.MouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -101,10 +122,14 @@ export default function LoginPage() {
         password,
       })
       if (error) throw error
-      router.replace("/dashboard")
+      
+      // Wait a moment for the session to be established
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Use window.location.href for a hard redirect to ensure middleware picks up the session
+      window.location.href = "/dashboard"
     } catch (e: any) {
       setError(e?.message || "Sign in failed")
-    } finally {
       setLoading(false)
     }
   }
@@ -121,10 +146,14 @@ export default function LoginPage() {
         },
       })
       if (error) throw error
-      router.replace("/blood-onboarding/eligibility")
+      
+      // Wait a moment for the session to be established
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Use window.location.href for a hard redirect
+      window.location.href = "/blood-onboarding/eligibility"
     } catch (e: any) {
       setError(e?.message || "Sign up failed")
-    } finally {
       setLoading(false)
     }
   }
@@ -144,6 +173,7 @@ export default function LoginPage() {
         },
       })
       if (error) throw error
+      // OAuth redirects automatically, so we don't need to handle the redirect here
     } catch (e: any) {
       setError(e?.message || "Google sign in failed")
       setLoading(false)
@@ -165,6 +195,20 @@ export default function LoginPage() {
         >
           or Sign up
         </button>
+      </div>
+    )
+  }
+
+  // Show loading while checking session
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="w-full flex flex-col items-center">
+          <div className="w-20 h-20 rounded-full bg-[#f0f3fa] flex items-center justify-center mb-8 shadow-[inset_8px_8px_16px_#d1d9e6,inset_-8px_-8px_16px_#ffffff]">
+            <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+          </div>
+          <p className="text-gray-500 font-mono">Checking authentication...</p>
+        </div>
       </div>
     )
   }

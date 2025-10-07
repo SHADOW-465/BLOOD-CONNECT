@@ -43,10 +43,12 @@ export async function middleware(request: NextRequest) {
 
   const protectedRoutes = ["/dashboard", "/profile", "/settings", "/notifications"]
 
+  // Redirect to login if accessing protected routes without session
   if (!session && protectedRoutes.some(route => pathname.startsWith(route))) {
     return NextResponse.redirect(new URL("/login", request.url))
   }
 
+  // Redirect authenticated users away from login page
   if (session && pathname === "/login") {
     return NextResponse.redirect(new URL("/dashboard", request.url))
   }

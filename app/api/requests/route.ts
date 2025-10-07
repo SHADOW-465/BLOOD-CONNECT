@@ -73,34 +73,67 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
+    
+    // Validate required fields
+    const requiredFields = ['blood_type', 'rh', 'urgency', 'location_lat', 'location_lng']
+    const missingFields = requiredFields.filter(field => !body[field])
+    
+    if (missingFields.length > 0) {
+      return new NextResponse(
+        JSON.stringify({ 
+          error: "Missing required fields", 
+          details: `Required fields: ${missingFields.join(', ')}` 
+        }), 
+        { status: 400 }
+      )
+    }
+
+    // Set expiration time (24 hours from now)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+    // Prepare the data for insertion
+    const requestData = {
+      requester_id: user.id,
+      blood_type: body.blood_type,
+      rh: body.rh,
+      urgency: body.urgency,
+      units_needed: parseInt(body.units_needed) || 1,
+      location_lat: parseFloat(body.location_lat),
+      location_lng: parseFloat(body.location_lng),
+      patient_name: body.patient_name || null,
+      patient_age: body.patient_age ? parseInt(body.patient_age) : null,
+      hospital: body.hospital || null,
+      contact: body.contact || null,
+      status: 'open',
+      expires_at: expiresAt,
+    }
+
+    console.log('Inserting request data:', requestData)
 
     const { data, error } = await supabase
       .from("emergency_requests")
-      .insert({
-        requester_id: user.id,
-        blood_type: body.blood_type,
-        rh: body.rh,
-        urgency: body.urgency,
-        units_needed: parseInt(body.units_needed, 10),
-        location_lat: body.location_lat,
-        location_lng: body.location_lng,
-        patient_name: body.patient_name,
-        patient_age: parseInt(body.patient_age, 10),
-        hospital: body.hospital,
-        contact: body.contact,
-        status: 'open',
-        expires_at: expiresAt,
-      })
+      .insert(requestData)
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Database error:', error)
+      throw error
+    }
 
-    return NextResponse.json({ message: "Request created successfully", data })
+    return NextResponse.json({ 
+      message: "Request created successfully", 
+      data,
+      id: data.id 
+    })
   } catch (error: any) {
+    console.error('Request creation error:', error)
     return new NextResponse(
-      JSON.stringify({ error: "There was an error creating the request.", details: error.message }),
+      JSON.stringify({ 
+        error: "There was an error creating the request.", 
+        details: error.message,
+        code: error.code 
+      }),
       { status: 500 },
     )
   }
