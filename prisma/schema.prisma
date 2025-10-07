@@ -1,0 +1,339 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum BloodType {
+  O
+  A
+  B
+  AB
+}
+
+enum RhFactor {
+  POSITIVE @map("+")
+  NEGATIVE @map("-")
+}
+
+enum UrgencyLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RequestStatus {
+  OPEN
+  MATCHED
+  FULFILLED
+  CANCELED
+}
+
+enum MatchStatus {
+  NOTIFIED
+  ACCEPTED
+  DECLINED
+  EN_ROUTE
+  ARRIVED
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELED
+}
+
+enum DonationStatus {
+  RECORDED
+  VERIFIED
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+enum RecordType {
+  DONATION
+  HEALTH_CHECK
+  VACCINATION
+  MEDICATION
+  ALLERGY
+}
+
+enum NotificationType {
+  EMERGENCY_REQUEST
+  APPOINTMENT_REMINDER
+  DONATION_REMINDER
+  SYSTEM_UPDATE
+}
+
+enum CalendarStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum AlertType {
+  SEVERE_WEATHER
+  EXTREME_HEAT
+  EXTREME_COLD
+  STORM
+}
+
+enum SeverityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  EXTREME
+}
+
+enum QueueStatus {
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Models
+model Profile {
+  id                   String             @id @db.Uuid
+  name                 String?
+  phone                String?
+  bloodType            BloodType?
+  rh                   RhFactor?
+  lastDonationDate     DateTime?          @map("last_donation_date") @db.Date
+  locationLat          Float?             @map("location_lat")
+  locationLng          Float?             @map("location_lng")
+  radiusKm             Int?               @default(10) @map("radius_km")
+  availabilityStatus   AvailabilityStatus? @default(AVAILABLE) @map("availability_status")
+  availabilityReason   String?            @map("availability_reason")
+  medicalNotes         String?            @map("medical_notes")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  emergencyRequests    EmergencyRequest[]
+  requestMatches       RequestMatch[]
+  appointments         Appointment[]
+  donations            Donation[]
+  medicalHistory       MedicalHistory[]
+  notifications        Notification[]
+  donationCalendar     DonationCalendar[]
+  queueEntries         DonationQueue[]
+
+  @@map("profiles")
+}
+
+model EmergencyRequest {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requesterId  String?       @map("requester_id") @db.Uuid
+  bloodType    BloodType
+  rh           RhFactor
+  urgency      UrgencyLevel? @default(HIGH)
+  unitsNeeded  Int?          @default(1) @map("units_needed")
+  locationLat  Float?        @map("location_lat")
+  locationLng  Float?        @map("location_lng")
+  radiusKm     Int?          @default(10) @map("radius_km")
+  status       RequestStatus? @default(OPEN)
+  patientName  String?       @map("patient_name")
+  patientAge   Int?          @map("patient_age")
+  hospital     String?
+  contact      String?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  expiresAt    DateTime?     @map("expires_at")
+
+  // Relations
+  requester    Profile?      @relation(fields: [requesterId], references: [id], onDelete: SetNull)
+  matches      RequestMatch[]
+  donations    Donation[]
+  shares       RequestShare[]
+
+  @@map("emergency_requests")
+}
+
+model RequestMatch {
+  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId            String?       @map("request_id") @db.Uuid
+  donorId              String?       @map("donor_id") @db.Uuid
+  distanceKm           Float?        @map("distance_km")
+  score                Float?
+  status               MatchStatus?  @default(NOTIFIED)
+  responseTimeSeconds  Int?          @map("response_time_seconds")
+  createdAt            DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  request              EmergencyRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  donor                Profile?          @relation(fields: [donorId], references: [id], onDelete: Cascade)
+
+  @@map("request_matches")
+}
+
+model Appointment {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  donorId      String?           @map("donor_id") @db.Uuid
+  scheduledAt  DateTime          @map("scheduled_at")
+  location     String?
+  status       AppointmentStatus? @default(PENDING)
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  // Relations
+  donor        Profile?          @relation(fields: [donorId], references: [id], onDelete: Cascade)
+
+  @@map("appointments")
+}
+
+model Donation {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  donorId           String?       @map("donor_id") @db.Uuid
+  requestId         String?       @map("request_id") @db.Uuid
+  volumeMl          Int?          @map("volume_ml")
+  donatedAt         DateTime?     @default(now()) @map("donated_at")
+  status            DonationStatus? @default(RECORDED)
+  confirmationToken String?       @default(dbgenerated("gen_random_uuid()")) @map("confirmation_token") @db.Uuid
+  confirmedAt       DateTime?     @map("confirmed_at")
+  confirmedBy       String?       @map("confirmed_by") @db.Uuid
+  qrCodeUrl         String?       @map("qr_code_url")
+  tokenExpiresAt    DateTime?     @default(dbgenerated("(now() + interval '7 days')")) @map("token_expires_at")
+
+  // Relations
+  donor             Profile?      @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  request           EmergencyRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  confirmedByUser   Profile?      @relation("DonationConfirmedBy", fields: [confirmedBy], references: [id])
+
+  @@map("donations")
+}
+
+model Hospital {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  locationLat  Float?    @map("location_lat")
+  locationLng  Float?    @map("location_lng")
+  contactPhone String?   @map("contact_phone")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  inventory    Inventory[]
+  queueEntries DonationQueue[]
+
+  @@map("hospitals")
+}
+
+model Inventory {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hospitalId String?    @map("hospital_id") @db.Uuid
+  bloodType  BloodType
+  rh         RhFactor
+  units      Int?       @default(0)
+  expiresAt  DateTime?  @map("expires_at") @db.Date
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  hospital   Hospital?  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@map("inventory")
+}
+
+model MedicalHistory {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  donorId       String?    @map("donor_id") @db.Uuid
+  recordType    RecordType @map("record_type")
+  title         String
+  description   String?
+  dateRecorded  DateTime   @map("date_recorded") @db.Date
+  doctorName    String?    @map("doctor_name")
+  clinicName    String?    @map("clinic_name")
+  fileUrl       String?    @map("file_url")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  // Relations
+  donor         Profile?   @relation(fields: [donorId], references: [id], onDelete: Cascade)
+
+  @@map("medical_history")
+}
+
+model Notification {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?          @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  read      Boolean?         @default(false)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  user      Profile?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model DonationCalendar {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  donorId        String?        @map("donor_id") @db.Uuid
+  scheduledDate  DateTime       @map("scheduled_date") @db.Date
+  location       String?
+  status         CalendarStatus? @default(SCHEDULED)
+  reminderSent   Boolean?       @default(false) @map("reminder_sent")
+  notes          String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  // Relations
+  donor          Profile?       @relation(fields: [donorId], references: [id], onDelete: Cascade)
+
+  @@map("donation_calendar")
+}
+
+model WeatherAlert {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationLat Float         @map("location_lat")
+  locationLng Float         @map("location_lng")
+  alertType   AlertType     @map("alert_type")
+  severity    SeverityLevel
+  message     String
+  startTime   DateTime      @map("start_time")
+  endTime     DateTime      @map("end_time")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  @@map("weather_alerts")
+}
+
+model DonationQueue {
+  id                    String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationId            String?     @map("location_id") @db.Uuid
+  donorId               String?     @map("donor_id") @db.Uuid
+  checkInTime           DateTime?   @default(now()) @map("check_in_time")
+  estimatedWaitMinutes  Int?        @map("estimated_wait_minutes")
+  position              Int?
+  status                QueueStatus? @default(WAITING)
+  completedAt           DateTime?   @map("completed_at")
+
+  // Relations
+  location              Hospital?   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  donor                 Profile?    @relation(fields: [donorId], references: [id], onDelete: Cascade)
+
+  @@map("donation_queues")
+}
+
+model RequestShare {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId String?  @map("request_id") @db.Uuid
+  sharedBy  String?  @map("shared_by") @db.Uuid
+  platform  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  request   EmergencyRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("request_shares")
+}

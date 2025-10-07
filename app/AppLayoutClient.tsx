@@ -31,16 +31,35 @@ const RequestModal = () => {
         }
         setSubmitting(true)
         try {
-          const res = await fetch("/api/requests", {
+          // Transform the form data to match API expectations
+          const requestData = {
+            blood_type: sosForm.bloodType,
+            rh: sosForm.rh,
+            urgency: sosForm.urgency,
+            units_needed: 1, // Default to 1 unit
+            location_lat: loc.lat,
+            location_lng: loc.lng,
+            patient_name: sosForm.patientName,
+            patient_age: parseInt(sosForm.patientAge) || 0,
+            hospital: sosForm.hospital,
+            contact: sosForm.contact,
+          }
+          
+          const res = await fetch("/api/requests-v2", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...sosForm, location_lat: loc.lat, location_lng: loc.lng }),
+            body: JSON.stringify(requestData),
           })
-          if (!res.ok) throw new Error("Request failed")
+          
+          if (!res.ok) {
+            const errorData = await res.json()
+            throw new Error(errorData.error || "Request failed")
+          }
+          
           toast.success("Emergency request sent to nearby donors.")
           await loadNearby()
-        } catch (e) {
-          toast.error("Failed to send emergency request.")
+        } catch (e: any) {
+          toast.error(e.message || "Failed to send emergency request.")
         } finally {
           setSubmitting(false)
           setIsSosModalOpen(false)
