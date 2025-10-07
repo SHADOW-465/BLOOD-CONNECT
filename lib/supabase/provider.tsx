@@ -26,8 +26,10 @@ export default function SupabaseProvider({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // Refresh the page to sync server and client auth state
-      router.refresh()
+      // Only refresh on sign in/out events to avoid unnecessary redirects
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        router.refresh()
+      }
     })
 
     return () => {

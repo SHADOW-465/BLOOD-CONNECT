@@ -39,7 +39,7 @@ export default function DashboardPage() {
 
   const loadNearby = useCallback(async () => {
     try {
-        const res = await fetch("/api/requests")
+        const res = await fetch("/api/requests-v2")
         if (!res.ok) throw new Error("Failed to fetch requests")
         const data = (await res.json()) as RequestRow[]
         setRequests(data)
